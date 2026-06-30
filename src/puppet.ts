@@ -40,6 +40,7 @@ export interface PuppetString {
   bodyAnchor: Vec2;                  // body-local
   segs: RAPIER_NS.RigidBody[];       // chain segments top->bottom ([] for rope)
   controlJoint: RAPIER_NS.ImpulseJoint; // the control-side joint; its anchor1 is updated for pitch/yaw
+  maxLength: number;                 // rope max-length (the slack budget); 0 for chains
 }
 
 // The four attach points. Spreading them across the control bar — instead of pinning
@@ -77,6 +78,13 @@ export interface Rig {
 // PRD §2: keep it modest — these gains are deliberately gentle and ride heavily-smoothed signals.
 const NOD_GAIN = 1.4;  // pitch(rad) -> head anchor drop: the head string tips the torso into a nod
 const TURN_GAIN = 0.7; // yaw(rad)  -> asymmetric shoulder height: the shoulders swing the torso round
+
+// Loose-limb slack: the limb ropes (shoulders + lower back) carry little load, so they hang with
+// visible slack and droop. maxLength = rest distance * this multiplier. >1 buys droop; tilting or
+// moving the control takes the slack up and re-poses the limb (so the pitch feature still bites).
+// The CENTER head chain bears the torso weight and stays taut — it is NOT a rope, so it ignores
+// this. Keep it relaxed, not floppy-to-the-floor (PRD §2 deliberate tempo): ~1.18-1.30.
+const LOOSE_ROPE_SLACK = 1.22;
 
 function posedAnchor(name: string, base: Vec2, pitch: number, yaw: number): Vec2 {
   let x = base.x * Math.cos(yaw);   // horizontal members foreshorten as the bar yaws
@@ -143,18 +151,21 @@ export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
     const bot: Vec2 = { x: torsoT.x + spec.bodyAnchor.x, y: torsoT.y + spec.bodyAnchor.y };
 
     if (spec.kind === "rope") {
-      // Near-taut so the control firmly poses the torso (intent), with a hair of slack for sway.
+      // Loose limb string: maxLength carries deliberate slack so it droops (the renderer reads
+      // maxLength back to bend the bezier). Tilting/moving the control takes the slack up and poses
+      // the limb, so the control still has authority despite the droop.
       const restDist = Math.hypot(top.x - bot.x, top.y - bot.y);
+      const maxLength = restDist * LOOSE_ROPE_SLACK;
       const controlJoint = world.createImpulseJoint(
         RAPIER.JointData.rope(
-          restDist * 1.04,
+          maxLength,
           { x: spec.controlAnchor.x, y: spec.controlAnchor.y, z: 0 },
           { x: spec.bodyAnchor.x, y: spec.bodyAnchor.y, z: 0 },
         ),
         control, torso,
         true,
       );
-      return { name: spec.name, kind: "rope", controlAnchor: spec.controlAnchor, body: torso, bodyAnchor: spec.bodyAnchor, segs: [], controlJoint };
+      return { name: spec.name, kind: "rope", controlAnchor: spec.controlAnchor, body: torso, bodyAnchor: spec.bodyAnchor, segs: [], controlJoint, maxLength };
     }
 
     // chain: light segments spawned along the (vertical) line top -> bot so joints don't snap.
@@ -177,7 +188,7 @@ export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
       prevBottom = { x: 0, y: -SEG_HALF };
     }
     spherical(prev, prevBottom, torso, spec.bodyAnchor);
-    return { name: spec.name, kind: "chain", controlAnchor: spec.controlAnchor, body: torso, bodyAnchor: spec.bodyAnchor, segs, controlJoint };
+    return { name: spec.name, kind: "chain", controlAnchor: spec.controlAnchor, body: torso, bodyAnchor: spec.bodyAnchor, segs, controlJoint, maxLength: 0 };
   });
 
   const posedAnchors = strings.map((s) => ({ ...s.controlAnchor }));

@@ -5,6 +5,11 @@ import { HAND_CONNECTIONS, type Landmark } from "./hands.ts";
 // Bodies rotate only about Z, so the world rotation is a single angle.
 const zAngle = (q: RAPIER_NS.Rotation): number => 2 * Math.atan2(q.z, q.w);
 
+// How far (in world units, per world unit of rope slack) a loose rope's bezier control point sags
+// downward under "gravity". The mid-curve drops ~half this (quadratic), so the visible sag is
+// ~slack * ROPE_SAG_GRAVITY / 2. Higher = droopier. The px conversion happens via sx/sy (scale).
+const ROPE_SAG_GRAVITY = 0.85;
+
 // Rotate a body-local point (Z-only) into world space.
 function localToWorld(body: RAPIER_NS.RigidBody, a: Vec2): Vec2 {
   const p = body.translation();
@@ -77,11 +82,18 @@ export class Renderer {
         this.lineTo(end);
         ctx.stroke();
       } else {
+        // loose limb rope: bend it into a smooth bezier whose sag tracks the LIVE slack
+        // (maxLength - endpoint distance, clamped >=0). Slack->0 (control takes it up) => the
+        // control point collapses onto the chord and the curve straightens to the taut line.
+        const dist = Math.hypot(top.x - end.x, top.y - end.y);
+        const slack = Math.max(0, s.maxLength - dist);
+        // gravity pulls the midpoint DOWN (-world Y); a quadratic CP at 2x gives ~slack*GRAV sag.
+        const cp: Vec2 = { x: (top.x + end.x) / 2, y: (top.y + end.y) / 2 - slack * ROPE_SAG_GRAVITY };
         ctx.strokeStyle = "rgba(201,201,210,0.7)";
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         this.moveTo(top);
-        this.lineTo(end);
+        ctx.quadraticCurveTo(this.sx(cp.x), this.sy(cp.y), this.sx(end.x), this.sy(end.y));
         ctx.stroke();
       }
       // attach dot on the puppet — marks the control point (and the customization handle).

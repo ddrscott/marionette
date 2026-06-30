@@ -57,12 +57,24 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
     plane — every body (control included) stays at `z = 0`, so the Z-lock is bulletproof.
 - **Visible strings (PRD §4.1):** four strings run from the control bar to the torso —
   **head** (center), **two shoulders** (wide, angled in from the bar ends), and **lower back**.
-  The head string is a chain of 5 light segment bodies (spherical joints): it sags, swings, and
-  reads unambiguously as a string, at **51.7% of viewport height**, holding on resize (the
-  renderer maps a *fixed world height* to the canvas, so any world-unit length is a constant
-  fraction of pixels). The other three are near-taut **rope joints** (real strings under tension
-  *are* straight). The four strings pose the torso — position and tilt — so you can act with
-  intent; arms and legs ragdoll passively off the torso.
+  The string model mirrors a real marionette's load distribution:
+  - **Center / head string = taut.** It bears the puppet's weight, so it hangs essentially
+    straight. It's a chain of 5 light segment bodies (spherical joints): under the torso load it
+    draws ~straight (rendered as the segment polyline, so it still shows its natural secondary
+    pendulum swing), reads unambiguously as a string at **51.7% of viewport height**, and holds
+    that fraction on resize (the renderer maps a *fixed world height* to the canvas, so any
+    world-unit length is a constant fraction of pixels).
+  - **Limb strings = loose.** The two shoulders and the lower back carry little load, so their
+    **rope joints** are given deliberate slack (`maxLength = rest * LOOSE_ROPE_SLACK`, ~×1.22) and
+    **hang loose**. The renderer draws each as a smooth **quadratic bezier** whose sag is computed
+    live from the actual slack — `slack = maxLength − distance(top, end)` — with the control point
+    pulled **downward under gravity** in proportion to that slack. So the curve is *dynamic*: it
+    droops when relaxed and **straightens to the taut chord** as the control tilts or moves enough
+    to take the slack up. The slack is tuned loose-at-rest but tight enough that deliberate
+    tilt/translation still poses the limbs (the pitch/yaw feature isn't neutered).
+
+  The four strings pose the torso — position and tilt — so you can act with intent; arms and legs
+  ragdoll passively off the torso.
 - **Hand overlay (PRD §4.2):** all 21 landmarks + `HAND_CONNECTIONS` drawn over the camera
   preview; control point **#9** is ringed in green with a crosshair that mirrors the control-bar
   crosshair on stage, making the hand→control mapping legible at a glance.
@@ -93,8 +105,13 @@ demonstrably moves the torso.
 
 - `ATTACH` — the four strings as data rows (name, control-bar anchor, torso anchor, chain|rope).
   This is the seam for the future "customize the rig" feature: edit/add rows toward the
-  British 9-string set (add hands + knees). Head is a `chain` (the sagging ≥50% hero); the
-  rest are near-taut `rope`s.
+  British 9-string set (add hands + knees). Head is a `chain` (the taut, weight-bearing ≥50%
+  hero); the rest are loose `rope`s drawn as drooping beziers.
+- `LOOSE_ROPE_SLACK` (`src/puppet.ts`) — how loose the limb ropes hang: `maxLength = rest *
+  this`. ~1.18–1.30 reads relaxed; lower = tighter/more control authority, higher = droopier.
+  Each rope exposes its `maxLength` so the renderer can compute live slack for the bezier sag.
+- `ROPE_SAG_GRAVITY` (`src/draw.ts`) — how far the loose-rope bezier control point sags downward
+  per world-unit of slack. Higher = droopier curve. (slack→0 ⇒ the curve straightens to the chord.)
 - `CONTROL_HALF_W` / `CONTROL_HALF_V` — how wide the control bar spreads the shoulder strings
   and how far its cross bar reaches for head/lower-back.
 - `WORLD_VIEW_HEIGHT`, `CONTROL_BASE_Y`, `HEAD_SEG_COUNT`, `SEG_HALF` — rig geometry and string length.
