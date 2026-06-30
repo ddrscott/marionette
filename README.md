@@ -37,17 +37,31 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
 
 ## What it does
 
-- **Hand → control:** MediaPipe Hand Landmarker (VIDEO mode, 1 hand, GPU) → palm landmark #9
-  → One Euro filter (`minCutoff 1.5`, `beta 0.01`, validated — do not retune) → kinematic
-  Rapier **control bar** at the top of the view.
-- **Hand orientation → control roll / pitch / yaw:** `handPose()` (in `hands.ts`) reads three
-  decoupled proxies from the landmarks — **roll** from the in-plane wrist(0)→middle-MCP(9) vector
-  (smoothed as sin/cos components to dodge angle-wrap), **pitch** from the in-image **finger-drop**
-  (mean fingertip y vs mean knuckle y, normalized by hand scale — read like the hand's angle "from
-  the side", no depth, so it's steady), **yaw** from the lateral z-gradient (index-MCP vs
-  pinky-MCP). Each gets its **own** One Euro smoothing (roll/pitch light, yaw heavy — z is the
-  noisiest channel); the §2 position defaults are untouched. Pitch's neutral is grip-dependent, so
-  `PITCH_NEUTRAL` zeroes the resting reading. `poseControl()` then re-poses the bar:
+- **Hand → control (direct 2-point drive):** MediaPipe Hand Landmarker (VIDEO mode, 1 hand, GPU)
+  feeds `controlDrive()` (in `control.ts`), which picks **two** hand landmarks to define the cross's
+  horizontal bar. The bar's **position = the midpoint** of those two points and its **roll = the
+  angle of the line between them** — both are now **MEASURED**, replacing the old single-point
+  (palm #9) translation and the synthesized roll proxy. The midpoint is smoothed by the position
+  One Euro filters and drives a kinematic Rapier **control bar** at the top of the view.
+  - **Binding is data-driven** via the `DRIVE` config (`control.ts`) — the customization seam for a
+    future in-app point-picker:
+    - `mode: "extremes"` (**default**): each frame, pick the landmarks with the min and max
+      **stage-x** (mirrored, +x = screen-right) as the left/right bar ends. This auto-adapts to
+      hand orientation and maximizes the bar spread. The derived center/angle stay **continuous even
+      when the identity of the extreme landmark switches**, because min/max *position* is continuous
+      (we smooth the derived center/angle, not the landmark identity) — verified headlessly.
+    - `mode: "fixed"`: use the configured `left`/`right` indices. The documented fixed default is
+      **index-MCP(5) / pinky-MCP(17)** — the knuckle row: a stable, curl-proof span.
+  - The cross stays a **fixed-size rigid "+"** (`CONTROL_HALF_W/V`): the two points set only center +
+    roll; the string-anchor span is **not** scaled with hand spread (that would restretch the
+    shoulder-string rest lengths and destabilize the rig).
+- **Hand orientation → control pitch / yaw:** `handPose()` (in `hands.ts`) reads two decoupled
+  proxies — **pitch** from the in-image **finger-drop** (mean fingertip y vs mean knuckle y,
+  normalized by hand scale — read like the hand's angle "from the side", no depth, so it's steady),
+  and **yaw** from the lateral z-gradient (index-MCP vs pinky-MCP). (Roll is no longer synthesized
+  here — it's the measured 2-point angle above.) Pitch is smoothed light; yaw rides the noisy z
+  channel and is smoothed hard. Pitch's neutral is grip-dependent, so `PITCH_NEUTRAL` zeroes the
+  resting reading. `poseControl()` then re-poses the bar:
   - **Roll** is a real in-plane **Z rotation** of the kinematic body — one shoulder anchor rises,
     the other drops, and the torso **leans through the strings** (genuine physics).
   - **Pitch & yaw are simulated orthographically, in-plane.** Rotating the control body *out* of
@@ -79,8 +93,10 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
   The four strings pose the torso — position and tilt — so you can act with intent; arms and legs
   ragdoll passively off the torso.
 - **Hand overlay (PRD §4.2):** all 21 landmarks + `HAND_CONNECTIONS` drawn over the camera
-  preview; control point **#9** is ringed in green with a crosshair that mirrors the control-bar
-  crosshair on stage, making the hand→control mapping legible at a glance.
+  preview, ringed in green with a crosshair that mirrors the control-bar crosshair on stage, making
+  the hand→control mapping legible at a glance. (The overlay's reference marker is a hint only; the
+  control is now driven by the **two-landmark bar**, not a single point — a point-picker overlay is
+  future work.)
 - **Instrumentation (PRD §4.3):** fps, hand-LOST indicator, swing-range slider, gravity slider,
   a **tilt-range slider** (master roll/pitch/yaw multiplier; `0` = flat, control only translates)
   with a live **roll/pitch/yaw degree readout**, and a string-length-% readout.
@@ -89,9 +105,10 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
 
 | File | Responsibility |
 |---|---|
-| `src/main.ts` | Loop: physics steps every frame; `detectForVideo` only on new camera frames (§5). Controls, control-bar position + roll/pitch/yaw mapping, the dedicated rotation One Euro filters. |
+| `src/main.ts` | Loop: physics steps every frame; `detectForVideo` only on new camera frames (§5). Controls, control-bar position + roll (from the 2-point drive) + pitch/yaw mapping, the control-path One Euro filters and their named latency-tuning constants. |
+| `src/control.ts` | **Dependency-free** direct-drive geometry: the `DRIVE` binding config, `controlDrive()` (the two stage-space bar ends), `controlCenter()` (midpoint), `rollAngleOf()` (bar angle). No MediaPipe import, so the measured position/roll math is unit-testable headlessly in Node. |
 | `src/puppet.ts` | Rapier rig: control bar, four strings (head chain + 3 ropes), torso + limbs. The `ATTACH` array, world-layout constants, and `poseControl()` (roll body rotation + in-plane pitch/yaw anchor posing) live here. |
-| `src/hands.ts` | MediaPipe init (CDN WASM + model), `HAND_CONNECTIONS`, and `handPose()` (roll/pitch/yaw proxies). |
+| `src/hands.ts` | MediaPipe init (CDN WASM + model), `HAND_CONNECTIONS`, and `handPose()` (pitch/yaw proxies; roll is now measured in `control.ts`). |
 | `src/draw.ts` | 2D-canvas renderer (adaptive scale) + hand-landmark overlay. |
 | `src/oneEuro.ts` | One Euro filter, ported verbatim from the validated dot test. |
 | `puppet-spike-1.html` | Original single-file spike, kept for reference. |
@@ -121,16 +138,35 @@ demonstrably moves the torso.
 - `NOD_GAIN` / `TURN_GAIN` (`src/puppet.ts`) — how hard pitch nods the head string and yaw swings
   the shoulders. Keep them gentle (PRD §2 wants a deliberate tempo).
 
-Rotation tunables in `src/main.ts`:
+Direct-drive config (in `src/control.ts`):
 
-- `ROLL_MAX` / `PITCH_MAX` / `YAW_MAX` — per-axis angle caps (roll widest at ±25°; pitch/yaw ±15°).
+- `DRIVE` — the data-driven binding: `{ mode, left, right }`. `mode: "extremes"` (default) drives
+  off the furthest-left/right landmarks each frame; `mode: "fixed"` uses the `left`/`right` indices
+  (default `5`/`17` = index-MCP / pinky-MCP, the knuckle row). This is the seam for a future in-app
+  point-picker; no picker UI yet.
+
+Rotation + control-path tunables in `src/main.ts`:
+
+- `ROLL_MAX` / `PITCH_MAX` / `YAW_MAX` — per-axis angle caps. Roll is now a **direct 1:1
+  measurement** of the 2-point bar angle, so it earns the widest cap (**±35°**, up from ±25°); still
+  clamped so a big hand tilt can't over-rotate the cross into instability. Pitch/yaw stay at ±15°.
+- **Latency / smoothing constants (control path):** `POS_MIN_CUTOFF` / `POS_BETA` and
+  `ROLL_MIN_CUTOFF` / `ROLL_BETA`. The raw landmark overlay has **no perceptible lag**, so detection
+  is fast and low-jitter — the delay was *our* conservative One Euro cutoff (which sheds the most lag
+  exactly at the slow marionette tempo). Because position + roll are now **measured** with a **single
+  smoothing stage each** (the synthesized-roll pass is gone), the control needs far less smoothing:
+  these `minCutoff`s are raised to **`5.0`** (well above the §2 position default of `1.5`) so the
+  cross tracks the hand nearly as immediately as the raw overlay, still jitter-free. Higher =
+  snappier; lower = steadier — dial by feel. (The One Euro **filter itself is unchanged**; only the
+  control-path cutoffs were reopened, with the user's evidence.)
 - `PITCH_NEUTRAL` / `PITCH_DEADZONE` / `PITCH_GAIN` — map the in-image finger-drop to pitch.
   `PITCH_NEUTRAL` is the resting drop ratio treated as 0° (hold a relaxed hand, read the r/p/y
   readout, set it to zero out); `PITCH_GAIN` scales drop→radians; the dead-zone ignores wobble.
 - `ZGRAD_GAIN` / `ZGRAD_DEADZONE` — map the noisy MediaPipe z-gradient to **yaw**, with a small
   dead-zone so a flat palm reads as neutral.
-- The four rotation One Euro filters (`frollX/Y`, `fpitch`, `fyaw`) — their own smoothing, separate
-  from the validated position filters (`fpx/fpy`, which stay at `1.5 / 0.01`).
+- The control-path One Euro filters: `fpx/fpy` (position midpoint, now at `POS_MIN_CUTOFF`),
+  `frollSin/frollCos` (roll, smoothed as sin/cos components to dodge angle-wrap, at
+  `ROLL_MIN_CUTOFF`), `fpitch`, and `fyaw` (z is the noisiest channel, so yaw is smoothed hardest).
 - The on-screen **tilt range** slider is a master multiplier over all three angles (live in the UI).
 
 ## Notes for the next pass

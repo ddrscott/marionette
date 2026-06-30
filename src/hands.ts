@@ -9,18 +9,14 @@ export const HAND_CONNECTIONS = HandLandmarker.HAND_CONNECTIONS;
 export type Landmark = NormalizedLandmark;
 
 // Orientation proxies pulled from the 21 landmarks, used to pose the control bar in 3D.
-// Each field is chosen to be a *signal you can smooth directly* (no angle-wrap, no per-hand
-// calibration) and to keep the three rotations decoupled:
-//   roll  — fully in-plane, from the wrist(0)->middle-MCP(9) vector (returned as components so
-//           One Euro never sees a wrapping angle).
-//   pitch — longitudinal z-gradient (middle-MCP vs wrist): palm tips toward/away from camera.
+// ROLL IS NO LONGER HERE — it is now MEASURED directly from two driving landmarks (see
+// control.ts / controlDrive), replacing the old synthesized wrist(0)->middle-MCP(9) proxy. Only
+// pitch and yaw remain proxies; each is a *signal you can smooth directly* (no angle-wrap, no
+// per-hand calibration) and the two stay decoupled:
+//   pitch — in-image finger DROP: how far the fingertips sit below the knuckle row (no depth).
 //   yaw   — lateral z-gradient (index-MCP vs pinky-MCP): palm turns left/right.
-// Two *projected lengths* would only give ONE scale-invariant DOF (their ratio), so pitch and
-// yaw cannot be separated geometrically — the z-gradients keep them independent. MediaPipe's z
-// is the noisiest channel, so callers smooth these hard (see main.ts).
+// MediaPipe's z is the noisiest channel, so callers smooth yaw hard (see main.ts).
 export interface HandPose {
-  rollX: number; // stage-space (mirrored, +x = screen-right) wrist->MCP9 x-component
-  rollY: number; // stage-space (+y = screen-up) wrist->MCP9 y-component
   pitch: number; // in-image finger DROP: mean(fingertip.y) - mean(knuckle.y), scale-normalized
   yaw: number;   // z(MCP5) - z(MCP17): index vs pinky depth
 }
@@ -32,17 +28,11 @@ const meanY = (lm: Landmark[], idx: number[]): number =>
 
 export function handPose(lm: Landmark[]): HandPose {
   const wrist = lm[0], mcp9 = lm[9], mcp5 = lm[5], mcp17 = lm[17];
-  // Match the stage frame used for translation in main.ts: X is mirrored (selfie), Y points up.
-  // Only differences matter here, so the sign flip alone carries the mapping (no offset needed).
-  //
   // Pitch is read "from the side" WITHOUT depth (per the user's choice): how far the fingertips
   // sit below the knuckle row in the image (image y is DOWN, so dropped fingers => +pitch).
   // Normalized by hand scale (wrist->MCP9 length) so it's invariant to hand size / distance.
-  // Tradeoff: shares the image-Y axis with roll, so a strong roll bleeds a little into pitch.
   const handScale = Math.hypot(mcp9.x - wrist.x, mcp9.y - wrist.y) || 1e-3;
   return {
-    rollX: -(mcp9.x - wrist.x),
-    rollY: -(mcp9.y - wrist.y),
     pitch: (meanY(lm, FINGERTIPS) - meanY(lm, KNUCKLES)) / handScale,
     yaw: mcp5.z - mcp17.z,
   };

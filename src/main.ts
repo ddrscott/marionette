@@ -2,6 +2,7 @@ import RAPIER from "@dimforge/rapier3d-compat";
 import { OneEuro } from "./oneEuro.ts";
 import { buildRig, poseControl, CENTER_STRING_LEN, CONTROL_BASE_Y, WORLD_VIEW_HEIGHT, type Rig } from "./puppet.ts";
 import { initHands, handPose, type Hands, type Landmark } from "./hands.ts";
+import { DRIVE, controlDrive, controlCenter, rollAngleOf } from "./control.ts";
 import { Renderer, drawHand } from "./draw.ts";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -24,8 +25,11 @@ $("slen").textContent = Math.round((CENTER_STRING_LEN / WORLD_VIEW_HEIGHT) * 100
 
 // ---- control-rotation limits + mapping (PRD §2: deliberate/slow, modest angles) ----
 const DEG = Math.PI / 180;
-const ROLL_MAX = 25 * DEG;  // in-plane lean — fully visible, so it gets the widest range
-const PITCH_MAX = 15 * DEG; // nod (now from in-image finger-drop, see hands.ts)
+// Roll is now a DIRECT 1:1 measurement of the bar between two hand landmarks, so it earns a wider
+// cap than the old synthesized proxy. Still clamped so a big hand tilt can't over-rotate the cross
+// into instability.
+const ROLL_MAX = 35 * DEG;  // in-plane lean — measured directly from the 2-point bar angle
+const PITCH_MAX = 15 * DEG; // nod (from in-image finger-drop, see hands.ts)
 const YAW_MAX = 15 * DEG;   // out-of-plane turn (foreshortens the horizontal bar)
 // Pitch from the finger-drop ratio (no depth). Its neutral is grip-dependent, so it's a knob:
 // hold a relaxed hand, read the pitch in the r/p/y readout, and set PITCH_NEUTRAL to zero it.
@@ -38,14 +42,25 @@ const ZGRAD_GAIN = 2.2;       // z-gradient (~±0.15 usable) -> radians, then cl
 const clamp = (v: number, m: number) => (v > m ? m : v < -m ? -m : v);
 const deadzone = (v: number, d: number) => (Math.abs(v) <= d ? 0 : v - Math.sign(v) * d);
 
+// ---- control-path smoothing (LATENCY TUNING — named constants so feel can be dialed) ----
+// The raw landmark overlay has no perceptible lag, so detection is fast and low-jitter; the delay
+// the user felt was OUR conservative One Euro cutoff (which drops most at the slow marionette
+// tempo). Now that position + roll are MEASURED (single smoothing stage each, no synthesized-roll
+// pass), the control needs far less smoothing — these minCutoffs are raised well above the §2
+// position default (1.5) so the cross tracks the hand nearly as immediately as the raw overlay,
+// while keeping enough smoothing for no visible jitter. Higher = snappier; lower = steadier.
+const POS_MIN_CUTOFF = 5.0;   // position (midpoint) responsiveness (was the 1.5 §2 default)
+const POS_BETA = 0.01;        // speed-coefficient (unchanged from §2)
+const ROLL_MIN_CUTOFF = 5.0;  // roll responsiveness, matched to position so the bar feels rigid
+const ROLL_BETA = 0.01;
+
 // ---- filters + state ----
-const fpx = new OneEuro();
-const fpy = new OneEuro();
-// New rotation signals get their OWN smoothing — the §2 position defaults (1.5 / 0.01) are
-// deliberately NOT reused. Roll and pitch are clean in-plane signals (lighter smoothing); yaw
-// rides the noisy z channel and is smoothed hard (low cutoff).
-const frollX = new OneEuro(1.2, 0.008);
-const frollY = new OneEuro(1.2, 0.008);
+const fpx = new OneEuro(POS_MIN_CUTOFF, POS_BETA);
+const fpy = new OneEuro(POS_MIN_CUTOFF, POS_BETA);
+// Roll is smoothed via its sin/cos COMPONENTS (single stage) so One Euro never sees a wrapping
+// angle. Pitch stays a clean in-plane signal; yaw rides the noisy z channel and is smoothed hard.
+const frollSin = new OneEuro(ROLL_MIN_CUTOFF, ROLL_BETA);
+const frollCos = new OneEuro(ROLL_MIN_CUTOFF, ROLL_BETA);
 const fpitch = new OneEuro(1.0, 0.006);
 const fyaw = new OneEuro(0.6, 0.004);
 const target = { x: 0, y: CONTROL_BASE_Y };
@@ -78,21 +93,29 @@ function readHand(now: number): void {
   if (hand) {
     latestLandmarks = hand;
     $("drop").style.visibility = "hidden";
-    const lm = hand[9]; // palm center = control point
-    const px = fpx.filter(lm.x, now);
-    const py = fpy.filter(lm.y, now);
-    target.x = (0.5 - px) * 2 * swingRange;        // mirror X, scale to swing range
-    target.y = CONTROL_BASE_Y + (0.5 - py) * 1.5;  // hand up/down -> control up/down (small range)
 
-    // ---- orientation: hand pose -> control bar roll / pitch / yaw ----
-    const pose = handPose(hand);
-    // Roll: smooth the in-plane vector COMPONENTS (not the angle) to dodge atan2 wrap, then
-    // take the angle off vertical. -roll on Z so the "+" leans the same way the fingers do
-    // (a +Z rotation tips the cross-bar top to screen-left; fingers leaning right want the right).
-    const rx = frollX.filter(pose.rollX, now);
-    const ry = frollY.filter(pose.rollY, now);
-    const rollAngle = Math.atan2(rx, ry); // 0 when the hand points straight up
+    // ---- DIRECT 2-point drive: position = midpoint, roll = bar angle (both MEASURED) ----
+    // Two hand landmarks (default = the furthest-left / -right in stage-x each frame; fixed-mode
+    // fallback = index-MCP(5)/pinky-MCP(17)) define the cross's horizontal bar. controlDrive
+    // returns them already in stage space (mirrored x, y-up). See control.ts / DRIVE.
+    const drive = controlDrive(hand, DRIVE);
+    const center = controlCenter(drive.left, drive.right);     // stage-space midpoint
+    const cx = fpx.filter(center.x, now);                      // single smoothing stage
+    const cy = fpy.filter(center.y, now);
+    target.x = cx * 2 * swingRange;                            // already mirrored; scale to swing
+    target.y = CONTROL_BASE_Y + cy * 1.5;                      // hand up/down -> control up/down
+
+    // Roll: angle of the line between the two points. Smooth via sin/cos components (single stage)
+    // to dodge atan2 wrap, then recombine. Negate onto Z so the "+" leans the same way the hand
+    // does (a +Z rotation tips the bar-top to screen-left; left-end-up tilt wants the other way).
+    const rawRoll = rollAngleOf(drive.left, drive.right);      // 0 when the bar is level
+    const rs = frollSin.filter(Math.sin(rawRoll), now);
+    const rc = frollCos.filter(Math.cos(rawRoll), now);
+    const rollAngle = Math.atan2(rs, rc);
     tilt.roll = clamp(-rollAngle, ROLL_MAX) * tiltRange;
+
+    // ---- orientation: hand pose -> control bar pitch / yaw (roll is measured above) ----
+    const pose = handPose(hand);
     // Pitch: in-image finger-drop (no depth), de-neutralized, dead-zoned, clamped.
     const pz = deadzone(fpitch.filter(pose.pitch, now) - PITCH_NEUTRAL, PITCH_DEADZONE);
     tilt.pitch = clamp(pz * PITCH_GAIN, PITCH_MAX) * tiltRange;
