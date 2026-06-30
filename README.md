@@ -53,6 +53,9 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
   smoothed by its own One Euro filter (each hand keeps its own 5 x/y filters). The full detection
   range maps to the full view, both axes, scaled by the **swing range** slider (`0–1`). Moving your
   whole hand moves all five together; spreading/curling a finger moves that control point alone.
+  Because detection lands off-thread at a sub-60 rate, each control then **glides** to its target
+  every render frame with a critically-damped **SmoothDamp** spring (the **smoothing** slider) — so
+  the kinematic joint never sees a one-step teleport that would whip the puppet.
 - **One string per finger:** five 10-link **chains**, one from each finger control point to its body
   part (`FINGERS`): `1 thumb→lArm`, `2 index→lLeg`, `3 middle→torso(head)`, `4 ring→rLeg`,
   `5 pinky→rArm`. The torso hangs from the head (middle-finger) string; arms and legs hang off the
@@ -135,42 +138,64 @@ Worker if frame rate suffers."* A Chrome profile showed `detectForVideo` (WASM i
 is only ~1.5 ms/step — not the sim). Detection now runs in a Web Worker so the physics/render loop
 never waits on inference:
 
-- **It MUST be a CLASSIC (non-module) worker.** MediaPipe's wasm loader calls `importScripts()`,
-  which **does not exist in a module worker** — so a `type:"module"` worker dies at init with
-  **"ModuleFactory not set"**. (The first offload attempt used a module worker and hit exactly that;
-  it was reverted, commit `be33381`.) Two things keep this one classic: `hands.ts` spawns it with
-  `new Worker(url, { type: "classic" })`, and `vite.config.ts` sets `worker.format = "iife"` so the
-  **built** worker chunk is a self-executing IIFE (a classic script), not an ES module. Vite inlines
-  the `@mediapipe/tasks-vision` import into that single IIFE chunk, so at runtime the worker is
-  classic and MediaPipe's internal `importScripts` works.
-- **Worker (`handsWorker.ts`)** owns the `@mediapipe/tasks-vision` import + the GPU inference. It
-  builds the `HandLandmarker` once (same VIDEO / `numHands: 2` / GPU delegate / CDN WASM + model as
-  before), then on each posted frame runs `detectForVideo` and posts back per-hand
-  `{ landmarks, handedness(categoryName) }` + the frame timestamp. The main bundle imports **zero**
-  `@mediapipe` code (the vision lib lands only in the worker chunk; `HAND_CONNECTIONS` is hardcoded
-  in `handsProtocol.ts`).
+- **It MUST be a CLASSIC (non-module) worker.** MediaPipe's wasm-glue loader (in `vision_bundle`)
+  only handles two environments: a classic worker (loads the glue via `importScripts`) or the main
+  thread (via `document.createElement("script")`). A `type:"module"` worker has **neither**
+  `importScripts` *nor* `document`, so it takes the `document` branch → `document is not defined` →
+  **"ModuleFactory not set"**. (The first attempt used a module worker and hit exactly that; reverted,
+  commit `be33381`.) Google's own example `import`s `@mediapipe/tasks-vision` in *source*, but that
+  compiles to a classic worker — which is what we run here.
+- **No ESM `import` in the worker — it `importScripts` a VENDORED bundle.** A classic worker can't
+  execute an ESM `import`, and in **dev** Vite serves the worker source with the `import` still in it
+  (only the production build inlines it) → the worker silently never starts. So `handsWorker.ts` has
+  **no** runtime import; it `importScripts` the MediaPipe **CommonJS** bundle and reads its API off an
+  `exports`/`module` shim. The bundle is **vendored** at `public/vendor/mediapipe-tasks-vision-0.10.35.js`
+  (a copy of the package's `vision_bundle.cjs`) and loaded **same-origin** — because jsdelivr serves
+  `.cjs` with MIME `application/node`, which the browser **refuses** to `importScripts` under strict
+  MIME checking. Same-origin as `.js` → `text/javascript` → runs. This path is identical in dev and
+  build (no Vite dep-bundling involved). *(If you bump the tasks-vision version, re-copy the `.cjs`
+  and update the filename + the `VISION_CJS`/CDN version strings in `handsWorker.ts`.)*
+- **The worker body is wrapped in an IIFE.** `importScripts` evaluates the vendored bundle in the
+  worker's **global** scope, and that minified bundle declares its own top-level identifiers (`g`,
+  …). The production build already wraps the worker in an IIFE, but dev serves a **flat** classic
+  script — so a bare top-level `const g` here would be a global-lexical binding that collides
+  (*"Identifier 'g' has already been declared"*). The IIFE keeps our identifiers out of the global
+  scope; only `module`/`exports` are intentionally put on `self` (the bundle resolves them there).
+- **Worker init (`handsWorker.ts`):** builds the `HandLandmarker` once (VIDEO, `numHands: 2`). It
+  **fetches the model in-worker** and passes it as a `modelAssetBuffer` (the official MediaPipe worker
+  pattern — a model-download failure surfaces explicitly instead of dying inside `createFromOptions`),
+  and tries the **GPU delegate, falling back to CPU** (GPU works on the main thread but can fail in a
+  worker with no GL context; CPU in the worker still never janks the render). It then posts
+  `{ ready }`, and on each posted frame runs `detectForVideo` and posts back per-hand
+  `{ landmarks, handedness(categoryName) }`. The main bundle imports **zero** `@mediapipe` code.
+- **No silent boot hang.** `hands.ts` attaches its message/error listeners **before** awaiting the
+  camera, so the worker's near-instant `ready` (and any early error) is never lost; and `main()`
+  awaits **only the camera**, not the worker — a worker that never readies leaves the puppets hanging
+  with a console error, never a frozen loading screen. `pump()` no-ops until `ready`.
 - **Frame transfer (main → worker):** each new camera frame, the main thread does
   `createImageBitmap(video)` and `worker.postMessage({ bmp, t }, [bmp])` — a zero-copy **transfer**.
   The worker `close()`s the bitmap after detecting (every path, no leak).
 - **Backpressure — one frame in flight.** `hands.ts` won't ship a new frame until the previous
   result returns (an `inFlight` guard), and only when `video.currentTime` advanced. Newer frames are
   **dropped, not queued**, so detection runs at its own best-effort rate and never builds a backlog.
-- **Decoupled loop preserved (§5).** Physics steps every `requestAnimationFrame`; `main.ts` consumes
-  the worker's **latest** result and re-assigns hands only when a new one arrives (`hands.seq`),
-  otherwise the puppets hold their last-known hands (the per-finger One Euro smoothing + physics
-  inertia absorb a frame or two of staleness). Per-hand assignment by wrist-x, the handedness binding
-  (`bindingForHandedness` + `HANDEDNESS_LABEL_IS_MIRRORED`), `drivePuppet`, the overlay, the
-  0/1/2-hand handling, and the hand-LOST indicator are all **unchanged** — they already consumed
-  landmarks + a handedness category string.
+- **Decoupled loop + control smoothing (§5).** Physics steps every `requestAnimationFrame`; `main.ts`
+  consumes the worker's **latest** result and re-assigns hands only when a new one arrives
+  (`hands.seq`), otherwise the puppets hold their last-known hands. Because detection lands at a
+  sub-60 rate, each fingertip **target** updates in bursts — so every render frame each control
+  **glides** toward its target with a critically-damped **SmoothDamp** spring (the `smoothing`
+  slider) instead of snapping on each detection. A snap would teleport the whole delta in one physics
+  step and inject a huge one-step velocity into the kinematic joint (the puppet gets whipped); the
+  velocity-continuous spring removes that acceleration spike. Re-acquiring a lost hand **snaps** (no
+  cross-screen sweep); only the continuous small gaps are smoothed. Per-hand assignment by wrist-x,
+  the handedness binding, `drivePuppet`, the overlay, and the 0/1/2-hand handling are unchanged.
 - **Typed both directions.** `handsProtocol.ts` is a dependency-free contract; every `postMessage`
   payload is a typed `WorkerInbound`/`WorkerOutbound` (no `any` holes).
 
-> **Not verified headlessly:** the build bundles the worker as a classic/IIFE chunk and the message
-> types check, but the actual two-hand **fps win**, worker round-trip latency, the GPU/CPU delegate,
-> `createImageBitmap`/`getUserMedia`, and MediaPipe-in-worker runtime init all need a **real Chrome +
-> webcam**. Confirm two-hand fps/feel live and watch the console for any `[handsWorker]` init error —
-> in particular another **"ModuleFactory not set"** would mean the worker is still emitting as a
-> module.
+> **Not verified headlessly:** the build/types check and the worker is provably a classic script that
+> `importScripts` the vendored bundle, but the actual two-hand **fps win**, worker round-trip, the
+> GPU/CPU delegate, `createImageBitmap`/`getUserMedia`, and MediaPipe-in-worker runtime init all need
+> a **real Chrome + webcam**. The worker logs each init stage (`[handsWorker] vision bundle loaded` →
+> `model fetched` → `landmarker ready (GPU|CPU)`); a stall names the failing stage.
 
 ## Architecture
 
@@ -180,9 +205,10 @@ never waits on inference:
 | `src/control.ts` | **Dependency-free** `stageX`/`stageY` (landmark → mirrored, y-up stage space). No MediaPipe import. |
 | `src/puppet.ts` | Rapier rig, split **world + puppet**: `buildWorld` makes the shared world + floor; `addPuppet(world, xOffset, binding)` adds one puppet (5 controls + 5 chain strings + torso/limbs). The `FINGERS` binding, its `mirrorBinding` L↔R helper, the `HANDEDNESS_LABEL_IS_MIRRORED` flip, and all rig constants live here. |
 | `src/hands.ts` | **Main-thread interface** to detection: owns the camera + spawns the CLASSIC detection worker, pumps frames to it (one in flight, gated to new camera frames), and exposes the **latest** per-hand `{ landmarks, handedness }`. Re-exports `HAND_CONNECTIONS` + the `Landmark` type — **no `@mediapipe` import on the main thread**. |
-| `src/handsWorker.ts` | **CLASSIC Web Worker** (Vite-bundled as IIFE). Owns the heavy `@mediapipe/tasks-vision` import + GPU inference: builds the `HandLandmarker` (VIDEO, **`numHands: 2`**, GPU delegate, CDN WASM + model) and runs `detectForVideo` on each transferred camera frame, posting back per-hand `{ landmarks, handedness }`. Classic (not module) so MediaPipe's `importScripts` wasm loader works. |
+| `src/handsWorker.ts` | **CLASSIC Web Worker**, IIFE-wrapped, **no ESM import**. `importScripts` the vendored MediaPipe CJS bundle (via an `exports`/`module` shim), builds the `HandLandmarker` (VIDEO, **`numHands: 2`**, model fetched in-worker as `modelAssetBuffer`, GPU→CPU fallback), and runs `detectForVideo` on each transferred frame, posting back per-hand `{ landmarks, handedness }`. Logs each init stage. |
 | `src/handsProtocol.ts` | **Dependency-free** main↔worker message contract: the typed `WorkerInbound`/`WorkerOutbound` unions, the `Landmark`/`WorkerHand` types, and a hardcoded `HAND_CONNECTIONS` (so the main bundle never pulls in `@mediapipe`). |
-| `vite.config.ts` | Sets `worker.format = "iife"` so the built worker chunk is a classic script (not an ES module) — the fix for the prior "ModuleFactory not set" failure. |
+| `public/vendor/mediapipe-tasks-vision-0.10.35.js` | Vendored copy of `@mediapipe/tasks-vision`'s `vision_bundle.cjs`, served **same-origin** as `text/javascript` so the worker can `importScripts` it (the CDN serves `.cjs` as `application/node`, which the browser refuses). Re-copy + rename on version bumps. |
+| `vite.config.ts` | Sets `worker.format = "iife"` so the **built** worker chunk is a classic script (matches the dev `{ type: "classic" }` spawn). |
 | `src/draw.ts` | 2D-canvas renderer (`clear()` + per-puppet `drawPuppet()`, adaptive scale, finger-coloured strings + control points) + both-hands landmark overlay (`drawHands`) + physics-debug overlay. |
 | `src/oneEuro.ts` | One Euro filter, ported verbatim from the validated dot test. |
 | `puppet-spike-1.html` | Original single-file spike, kept for reference. |
@@ -228,6 +254,9 @@ Control-path tunables in `src/main.ts`:
   = full screen. `VERT_CENTER` / `VERT_SPAN` set the vertical band (full `[0,12]`).
 - `POS_MIN_CUTOFF` (`5.0`) / `POS_BETA` — per-finger One Euro smoothing. The raw landmark overlay has
   no perceptible lag, so little smoothing is needed; higher = snappier, lower = steadier.
+- `smoothTime` (`0.01`, the **smoothing** slider, seconds) — the SmoothDamp control spring's
+  time-to-target. Bridges the sub-60 detection rate so controls glide instead of teleporting (no joint
+  whip); `0` = snap (old behavior), higher = smoother but laggier.
 
 ## Notes for the next pass
 

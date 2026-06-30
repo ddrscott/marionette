@@ -44,13 +44,16 @@ export function handPose(lm: Landmark[]): HandPose {
 export class Hands {
   latest: WorkerHand[] = [];
   seq = 0;
+  ready = false;                  // worker's HandLandmarker is built (set async, never blocks boot)
   private inFlight = false;        // at most ONE frame in the worker at a time (no backlog/lag)
   private lastVideoTime = -1;      // only ship a frame when the camera advanced
 
   private constructor(readonly video: HTMLVideoElement, private readonly worker: Worker) {
     worker.addEventListener("message", (ev: MessageEvent): void => {
       const msg = ev.data as WorkerOutbound;
-      if (msg.type === "result") {
+      if (msg.type === "ready") {
+        this.ready = true; // landmarker built — pump() may now ship frames
+      } else if (msg.type === "result") {
         this.latest = msg.hands;
         this.seq++;
         this.inFlight = false; // result returned — free to send the next frame
@@ -59,36 +62,42 @@ export class Hands {
         console.error("[handsWorker]", msg.message);
       }
     });
+    // A classic-worker LOAD failure (parse/import error) fires here, not as a message — surface
+    // it instead of letting detection silently never start.
+    worker.addEventListener("error", (e: ErrorEvent): void => {
+      console.error("[handsWorker] failed to load:", e.message || e);
+    });
   }
 
-  // Spawn + initialize the worker (awaits the landmarker build), then start the camera.
+  // Spawn the worker + start the camera. Does NOT block on the worker's landmarker build — the
+  // app boots as soon as the camera is up; the worker signals `ready` asynchronously and pump()
+  // stays a no-op until then. (A worker that never readies leaves the puppets hanging with a
+  // console error — never a silent boot hang.)
   static async create(video: HTMLVideoElement): Promise<Hands> {
-    // `{ type: "classic" }` is LOAD-BEARING: MediaPipe's wasm loader uses importScripts(),
-    // which only exists in a classic worker. A module worker dies with "ModuleFactory not
-    // set" (the bug that reverted the prior attempt). vite.config.ts's `worker.format =
-    // "iife"` makes the BUILT chunk classic to match this dev-mode spawn.
+    // `{ type: "classic" }` is LOAD-BEARING: MediaPipe's wasm loader uses importScripts(), which
+    // only exists in a classic worker (a module worker dies with "ModuleFactory not set"). The
+    // worker itself has no ESM import (it importScripts() the CJS bundle), so this same classic
+    // spawn works in BOTH dev and the production build.
     const worker = new Worker(new URL("./handsWorker.ts", import.meta.url), { type: "classic" });
 
-    // Block until the worker's HandLandmarker is built (or surface the init error).
-    await new Promise<void>((resolve, reject) => {
-      const onInit = (ev: MessageEvent): void => {
-        const msg = ev.data as WorkerOutbound;
-        if (msg.type === "ready") { worker.removeEventListener("message", onInit); resolve(); }
-        else if (msg.type === "error") { worker.removeEventListener("message", onInit); reject(new Error(msg.message)); }
-      };
-      worker.addEventListener("message", onInit);
-    });
+    // Construct (which attaches the message/error listeners) BEFORE starting the camera. The
+    // worker builds its landmarker and posts `ready` almost immediately — if we awaited the
+    // camera first, that `ready` (and any early error) would fire before any listener existed
+    // and be lost, leaving `ready` stuck false and pump() never shipping a frame.
+    const hands = new Hands(video, worker);
 
     const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
     video.srcObject = stream;
     await video.play();
-    return new Hands(video, worker);
+    return hands;
   }
 
-  // Call once per rAF. If the camera has a fresh frame and the worker is idle, grab it as an
-  // ImageBitmap and TRANSFER it (zero-copy). A no-op while a frame is in flight or the camera
-  // hasn't advanced — so detection runs at camera rate, never backing up behind the render loop.
+  // Call once per rAF. If the worker is ready, the camera has a fresh frame, and the worker is
+  // idle, grab it as an ImageBitmap and TRANSFER it (zero-copy). A no-op while not ready, while a
+  // frame is in flight, or while the camera hasn't advanced — so detection runs at camera rate,
+  // never backing up behind the render loop.
   pump(t: number): void {
+    if (!this.ready) return;                         // worker's landmarker not built yet
     if (this.inFlight) return;
     if (this.video.readyState < 2) return;           // HAVE_CURRENT_DATA — a frame exists to grab
     if (this.video.currentTime === this.lastVideoTime) return;

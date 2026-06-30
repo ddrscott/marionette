@@ -23,6 +23,12 @@ let gravityY = 9.8;
 let drag = DEFAULT_LINEAR_DAMPING;  // LINEAR damping = air-resistance/float knob (angular stays fixed)
 let weight = DEFAULT_PUPPET_WEIGHT; // puppet mass multiplier
 let friction = DEFAULT_STRING_FRICTION; // per-segment damping = string "joint friction" (settles floppy chains)
+// Control smoothing: detection arrives off-thread at its own (sub-60) rate, so each fingertip
+// TARGET updates in bursts. We chase that target with a critically-damped spring EVERY render
+// frame (see smoothDamp) so the kinematic control GLIDES instead of teleporting on each new
+// detection — a teleport injects a huge one-step velocity into the joint and whips the puppet.
+// Higher = smoother but laggier; 0 = snap (old behavior).
+let smoothTime = 0.01; // seconds, roughly "time to reach the target" (tuned: kills the whip, stays tight)
 $("range").oninput = (e) => { swingRange = +(e.target as HTMLInputElement).value; $("rv").textContent = swingRange.toFixed(2); };
 $("grav").oninput = (e) => { gravityY = +(e.target as HTMLInputElement).value; $("gv").textContent = gravityY.toFixed(1); };
 $("damp").oninput = (e) => {
@@ -40,6 +46,10 @@ $("fric").oninput = (e) => {
   $("fv").textContent = friction.toFixed(1);
   for (const p of puppets) setStringFriction(p, friction); // calm the chains without floating the fall
 };
+$("smooth").oninput = (e) => {
+  smoothTime = +(e.target as HTMLInputElement).value;
+  $("sv").textContent = smoothTime.toFixed(2);
+};
 // overlay raw physics line segments + per-chain stretch readout. NOTE: the checkbox id must NOT be
 // "dbg" — that collides with the MediaPipe wasm glue's global `dbg` and crashes init.
 let debug = false; // off by default — the physics overlay is a dev tool and costs render time
@@ -56,13 +66,32 @@ const VERT_SPAN = WORLD_VIEW_HEIGHT;       // 12 -> a fingertip's y spans the wh
 const POS_MIN_CUTOFF = 5.0; // snappy: detection is low-jitter, so little smoothing is needed
 const POS_BETA = 0.01;
 
+// Critically-damped smoothing toward a target (Unity's Mathf.SmoothDamp). Returns the new
+// [position, velocity]. Unlike a lerp it carries a velocity state, so motion is C1-continuous:
+// when the target jumps, position eases over ~smoothTime AND there's no acceleration step — which
+// is exactly what keeps the kinematic joint from yanking the puppet on each fresh detection.
+function smoothDamp(cur: number, target: number, vel: number, smoothTime: number, dt: number): [number, number] {
+  const st = Math.max(1e-4, smoothTime);
+  const omega = 2 / st;
+  const x = omega * dt;
+  const exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+  const change = cur - target;
+  const temp = (vel + omega * change) * dt;
+  const newVel = (vel - omega * temp) * exp;
+  return [target + (change + temp) * exp, newVel];
+}
+
 // ---- per-hand state. handStates[0] drives the LEFT puppet, [1] the RIGHT puppet (assigned by the
 // hand's wrist screen-x each frame). Each hand keeps its own 5 x/y One Euro filters (by finger slot
 // thumb..pinky) so its identity — and thus its smoothing — stays tied to its screen side. ----
 interface HandState {
   ffx: OneEuro[];                 // 5, by finger slot (thumb..pinky)
   ffy: OneEuro[];
-  pos: { x: number; y: number }[]; // 5 filtered world positions by finger slot
+  pos: { x: number; y: number }[]; // 5 filtered world positions by finger slot (the TARGET, at detection rate)
+  ctrl: { x: number; y: number }[]; // 5 SMOOTHED control positions (chase pos every render frame)
+  cvx: number[];                   // 5 smoothdamp x velocities (spring state)
+  cvy: number[];                   // 5 smoothdamp y velocities
+  primed: boolean;                 // ctrl has been snapped to pos since this hand was (re)acquired
   binding: FingerBind[];           // chosen from handedness (no-crossing); maps finger slot -> part
   present: boolean;                // a hand is assigned this frame
   landmarks: Landmark[] | null;    // for the camera overlay
@@ -72,6 +101,10 @@ const makeHandState = (): HandState => ({
   ffx: FINGERTIPS.map(() => new OneEuro(POS_MIN_CUTOFF, POS_BETA)),
   ffy: FINGERTIPS.map(() => new OneEuro(POS_MIN_CUTOFF, POS_BETA)),
   pos: FINGERTIPS.map(() => ({ x: 0, y: 0 })),
+  ctrl: FINGERTIPS.map(() => ({ x: 0, y: 0 })),
+  cvx: FINGERTIPS.map(() => 0),
+  cvy: FINGERTIPS.map(() => 0),
+  primed: false,
   binding: RIGHT_HAND_BINDING,
   present: false,
   landmarks: null,
@@ -86,6 +119,7 @@ let hands: Hands;
 let lastSeq = -1; // last worker-result id we processed (detection is async, at camera rate)
 let frames = 0;
 let fpsT = performance.now();
+let lastLoopT = performance.now(); // for the per-frame smoothing dt
 
 function sizeOverlay(): void {
   camOverlay.width = camOverlay.clientWidth;
@@ -148,8 +182,29 @@ function readHands(now: number): void {
     assign(1, dets[1]);
   }
 
+  // A hand that ended up absent this cycle loses its prime, so when it's re-acquired the spring
+  // SNAPS to the new position instead of sweeping the puppet across the screen from the old one.
+  if (!handStates[0].present) handStates[0].primed = false;
+  if (!handStates[1].present) handStates[1].primed = false;
+
   $("drop").style.visibility = dets.length > 0 ? "hidden" : "visible";
   $("hcount").textContent = String(dets.length);
+}
+
+// Glide each control toward its (burst-updated) target every render frame. On the first frame
+// after (re)acquiring a hand we snap (no spring) so the control starts AT the hand instead of
+// flying in from a stale position; after that it's a critically-damped chase.
+function smoothControls(h: HandState, dt: number): void {
+  for (let j = 0; j < FINGERTIPS.length; j++) {
+    if (!h.primed) {
+      h.ctrl[j].x = h.pos[j].x; h.ctrl[j].y = h.pos[j].y;
+      h.cvx[j] = 0; h.cvy[j] = 0;
+    } else {
+      [h.ctrl[j].x, h.cvx[j]] = smoothDamp(h.ctrl[j].x, h.pos[j].x, h.cvx[j], smoothTime, dt);
+      [h.ctrl[j].y, h.cvy[j]] = smoothDamp(h.ctrl[j].y, h.pos[j].y, h.cvy[j], smoothTime, dt);
+    }
+  }
+  h.primed = true;
 }
 
 // Drive one puppet's controls from its assigned hand. Each control is driven BY ITS TARGET PART using
@@ -160,7 +215,7 @@ function drivePuppet(p: Puppet, h: HandState): void {
   const slotByTarget = {} as Record<TargetName, number>;
   h.binding.forEach((f) => { slotByTarget[f.target] = FINGERTIPS.indexOf(f.landmark); });
   for (const s of p.strings) {
-    const pos = h.pos[slotByTarget[s.target]];
+    const pos = h.ctrl[slotByTarget[s.target]]; // the SMOOTHED control position, not the raw target
     s.control.setNextKinematicTranslation({ x: pos.x, y: pos.y, z: 0 });
   }
 }
@@ -172,8 +227,14 @@ function loop(): void {
 
   readHands(now);
 
+  // dt for the control spring (clamped so a long tab-away can't produce one giant smoothdamp step).
+  const dt = Math.min(0.05, (now - lastLoopT) / 1000);
+  lastLoopT = now;
+
   // physics steps every frame; each puppet's controls are driven from its assigned hand (or hold).
   world.gravity = { x: 0, y: -gravityY, z: 0 };
+  if (handStates[0].present) smoothControls(handStates[0], dt); // glide controls toward targets at render rate
+  if (handStates[1].present) smoothControls(handStates[1], dt);
   drivePuppet(puppets[0], handStates[0]);
   drivePuppet(puppets[1], handStates[1]);
   world.step();
