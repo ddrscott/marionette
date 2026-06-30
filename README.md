@@ -40,6 +40,21 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
 - **Hand → control:** MediaPipe Hand Landmarker (VIDEO mode, 1 hand, GPU) → palm landmark #9
   → One Euro filter (`minCutoff 1.5`, `beta 0.01`, validated — do not retune) → kinematic
   Rapier **control bar** at the top of the view.
+- **Hand orientation → control roll / pitch / yaw:** `handPose()` (in `hands.ts`) reads three
+  decoupled proxies from the landmarks — **roll** from the in-plane wrist(0)→middle-MCP(9) vector
+  (smoothed as sin/cos components to dodge angle-wrap), **pitch** from the longitudinal z-gradient
+  (MCP9 vs wrist), **yaw** from the lateral z-gradient (index-MCP vs pinky-MCP). Each gets its
+  **own** One Euro smoothing (roll light, pitch/yaw heavy — z is the noisiest channel); the §2
+  position defaults are untouched. `poseControl()` then re-poses the bar:
+  - **Roll** is a real in-plane **Z rotation** of the kinematic body — one shoulder anchor rises,
+    the other drops, and the torso **leans through the strings** (genuine physics).
+  - **Pitch & yaw are simulated orthographically, in-plane.** Rotating the control body *out* of
+    plane would yank the z-locked lower-back rope along its one forbidden axis and blow the solver
+    up (verified headlessly), so instead the control-local anchors are repositioned: `cos()`
+    **foreshortens** the bar (vertical member under pitch, horizontal under yaw), and a gentle
+    **nod / turn pull** (head anchor drops; shoulders swap height) moves the puppet — foreshortening
+    on its own only slackens the max-length ropes, so it can't pull. Nothing ever leaves the
+    plane — every body (control included) stays at `z = 0`, so the Z-lock is bulletproof.
 - **Visible strings (PRD §4.1):** four strings run from the control bar to the torso —
   **head** (center), **two shoulders** (wide, angled in from the bar ends), and **lower back**.
   The head string is a chain of 5 light segment bodies (spherical joints): it sags, swings, and
@@ -52,23 +67,27 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
   preview; control point **#9** is ringed in green with a crosshair that mirrors the control-bar
   crosshair on stage, making the hand→control mapping legible at a glance.
 - **Instrumentation (PRD §4.3):** fps, hand-LOST indicator, swing-range slider, gravity slider,
-  and a live string-length-% readout.
+  a **tilt-range slider** (master roll/pitch/yaw multiplier; `0` = flat, control only translates)
+  with a live **roll/pitch/yaw degree readout**, and a string-length-% readout.
 
 ## Architecture
 
 | File | Responsibility |
 |---|---|
-| `src/main.ts` | Loop: physics steps every frame; `detectForVideo` only on new camera frames (§5). Controls, control-bar mapping. |
-| `src/puppet.ts` | Rapier rig: control bar, four strings (head chain + 3 ropes), torso + limbs. The `ATTACH` array and world-layout constants live here. |
-| `src/hands.ts` | MediaPipe init (CDN WASM + model) and `HAND_CONNECTIONS`. |
+| `src/main.ts` | Loop: physics steps every frame; `detectForVideo` only on new camera frames (§5). Controls, control-bar position + roll/pitch/yaw mapping, the dedicated rotation One Euro filters. |
+| `src/puppet.ts` | Rapier rig: control bar, four strings (head chain + 3 ropes), torso + limbs. The `ATTACH` array, world-layout constants, and `poseControl()` (roll body rotation + in-plane pitch/yaw anchor posing) live here. |
+| `src/hands.ts` | MediaPipe init (CDN WASM + model), `HAND_CONNECTIONS`, and `handPose()` (roll/pitch/yaw proxies). |
 | `src/draw.ts` | 2D-canvas renderer (adaptive scale) + hand-landmark overlay. |
 | `src/oneEuro.ts` | One Euro filter, ported verbatim from the validated dot test. |
 | `puppet-spike-1.html` | Original single-file spike, kept for reference. |
 
 **2.5D plane lock:** every dynamic body uses `enabledTranslations(true,true,false)` +
 `enabledRotations(false,false,true)`. Colliders share one collision group so puppet/string
-parts never self-collide (avoids joint jitter). Verified headlessly: after 5 s of control-bar
-sweeping, `max |z| == 0` and nothing explodes.
+parts never self-collide (avoids joint jitter). The control bar is kinematic and only ever
+**rolls about Z** — pitch/yaw are faked in-plane (see above), so it too stays in the plane.
+Verified headlessly: ~10 s of combined translation **and** roll/pitch/yaw sweeping →
+`max |z| == 0` on every dynamic body, no NaN, nothing explodes, and each of the three rotations
+demonstrably moves the torso.
 
 ## Tuning knobs (in `src/puppet.ts`)
 
@@ -79,6 +98,17 @@ sweeping, `max |z| == 0` and nothing explodes.
 - `CONTROL_HALF_W` / `CONTROL_HALF_V` — how wide the control bar spreads the shoulder strings
   and how far its cross bar reaches for head/lower-back.
 - `WORLD_VIEW_HEIGHT`, `CONTROL_BASE_Y`, `HEAD_SEG_COUNT`, `SEG_HALF` — rig geometry and string length.
+- `NOD_GAIN` / `TURN_GAIN` (`src/puppet.ts`) — how hard pitch nods the head string and yaw swings
+  the shoulders. Keep them gentle (PRD §2 wants a deliberate tempo).
+
+Rotation tunables in `src/main.ts`:
+
+- `ROLL_MAX` / `PITCH_MAX` / `YAW_MAX` — per-axis angle caps (roll widest at ±25°; pitch/yaw ±15°).
+- `ZGRAD_GAIN` / `ZGRAD_DEADZONE` — map the noisy MediaPipe z-gradients to pitch/yaw, with a small
+  dead-zone so a flat palm reads as neutral.
+- The four rotation One Euro filters (`frollX/Y`, `fpitch`, `fyaw`) — their own smoothing, separate
+  from the validated position filters (`fpx/fpy`, which stay at `1.5 / 0.01`).
+- The on-screen **tilt range** slider is a master multiplier over all three angles (live in the UI).
 
 ## Notes for the next pass
 

@@ -35,10 +35,11 @@ export interface Capsule { body: RAPIER_NS.RigidBody; half: number; rad: number;
 export interface PuppetString {
   name: string;
   kind: "chain" | "rope";
-  controlAnchor: Vec2;               // control-local
+  controlAnchor: Vec2;               // control-local (the NEUTRAL anchor; poseControl foreshortens it)
   body: RAPIER_NS.RigidBody;         // body the string ends on
   bodyAnchor: Vec2;                  // body-local
   segs: RAPIER_NS.RigidBody[];       // chain segments top->bottom ([] for rope)
+  controlJoint: RAPIER_NS.ImpulseJoint; // the control-side joint; its anchor1 is updated for pitch/yaw
 }
 
 // The four attach points. Spreading them across the control bar — instead of pinning
@@ -58,6 +59,32 @@ export interface Rig {
   parts: Capsule[];          // torso + limbs (drawn thick)
   torso: RAPIER_NS.RigidBody;
   strings: PuppetString[];   // the four control strings (head is the long center chain)
+  // Control-local anchor positions AFTER pitch/yaw posing (aligned with `strings`), plus the
+  // cross-bar's decorative top tip. The renderer draws the bar + string tops from these so the
+  // strings always stay attached to the foreshortened "+". The body itself only carries ROLL.
+  posedAnchors: Vec2[];
+  barTip: Vec2;
+}
+
+// ---- control tilt response: how roll/pitch/yaw re-pose the IN-PLANE control anchors ----
+// The control body only rolls (in-plane Z) — rotating it out of plane would yank the z-locked
+// lower-back rope perpendicular to its only free axes and blow the solver up (verified). So pitch
+// and yaw are simulated by repositioning the anchors within the plane:
+//   * cos() foreshortening shrinks the bar (vertical member under pitch, horizontal under yaw) —
+//     the orthographic cue the PRD asks for;
+//   * a small NOD/TURN pull then actually moves the puppet through the strings (foreshortening
+//     alone only slackens the max-length ropes, so it can't pull on its own).
+// PRD §2: keep it modest — these gains are deliberately gentle and ride heavily-smoothed signals.
+const NOD_GAIN = 1.4;  // pitch(rad) -> head anchor drop: the head string tips the torso into a nod
+const TURN_GAIN = 0.7; // yaw(rad)  -> asymmetric shoulder height: the shoulders swing the torso round
+
+function posedAnchor(name: string, base: Vec2, pitch: number, yaw: number): Vec2 {
+  let x = base.x * Math.cos(yaw);   // horizontal members foreshorten as the bar yaws
+  let y = base.y * Math.cos(pitch); // vertical members foreshorten as the bar pitches
+  if (name === "head") y -= pitch * NOD_GAIN;        // pull the head string -> nod / weight shift
+  else if (name === "lShoulder") y += yaw * TURN_GAIN; // shoulders swap height -> turn
+  else if (name === "rShoulder") y -= yaw * TURN_GAIN;
+  return { x, y };
 }
 
 export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
@@ -118,7 +145,7 @@ export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
     if (spec.kind === "rope") {
       // Near-taut so the control firmly poses the torso (intent), with a hair of slack for sway.
       const restDist = Math.hypot(top.x - bot.x, top.y - bot.y);
-      world.createImpulseJoint(
+      const controlJoint = world.createImpulseJoint(
         RAPIER.JointData.rope(
           restDist * 1.04,
           { x: spec.controlAnchor.x, y: spec.controlAnchor.y, z: 0 },
@@ -127,13 +154,15 @@ export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
         control, torso,
         true,
       );
-      return { name: spec.name, kind: "rope", controlAnchor: spec.controlAnchor, body: torso, bodyAnchor: spec.bodyAnchor, segs: [] };
+      return { name: spec.name, kind: "rope", controlAnchor: spec.controlAnchor, body: torso, bodyAnchor: spec.bodyAnchor, segs: [], controlJoint };
     }
 
     // chain: light segments spawned along the (vertical) line top -> bot so joints don't snap.
     const segs: RAPIER_NS.RigidBody[] = [];
     let prev: RAPIER_NS.RigidBody = control;
     let prevBottom: Vec2 = spec.controlAnchor;
+    // The first joint (control -> seg0) is the control-side handle whose anchor1 we foreshorten.
+    let controlJoint!: RAPIER_NS.ImpulseJoint;
     for (let i = 0; i < HEAD_SEG_COUNT; i++) {
       const cy = top.y - (i + 0.5) * (SEG_HALF * 2);
       const seg = world.createRigidBody(dyn(top.x, cy));
@@ -142,13 +171,32 @@ export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
         seg,
       );
       segs.push(seg);
-      spherical(prev, prevBottom, seg, { x: 0, y: SEG_HALF });
+      const j = spherical(prev, prevBottom, seg, { x: 0, y: SEG_HALF });
+      if (i === 0) controlJoint = j;
       prev = seg;
       prevBottom = { x: 0, y: -SEG_HALF };
     }
     spherical(prev, prevBottom, torso, spec.bodyAnchor);
-    return { name: spec.name, kind: "chain", controlAnchor: spec.controlAnchor, body: torso, bodyAnchor: spec.bodyAnchor, segs };
+    return { name: spec.name, kind: "chain", controlAnchor: spec.controlAnchor, body: torso, bodyAnchor: spec.bodyAnchor, segs, controlJoint };
   });
 
-  return { world, control, parts, torso, strings };
+  const posedAnchors = strings.map((s) => ({ ...s.controlAnchor }));
+  return { world, control, parts, torso, strings, posedAnchors, barTip: { x: 0, y: CONTROL_HALF_V } };
+}
+
+// Pose the control each frame. Roll is a REAL in-plane Z rotation of the kinematic body, so it
+// poses the torso through the strings (one shoulder rises, the other drops -> the puppet leans).
+// Pitch & yaw are simulated in-plane via posedAnchor() — the body never leaves z=0, so every
+// dynamic body stays Z-locked while the bar still foreshortens and the puppet still responds.
+export function poseControl(rig: Rig, roll: number, pitch: number, yaw: number): void {
+  // physics: in-plane roll only — a pure quaternion about Z (out-of-plane rotation would yank the
+  // z-locked bodies and blow the solver up). Pitch/yaw are baked into the anchors below instead.
+  rig.control.setNextKinematicRotation({ x: 0, y: 0, z: Math.sin(roll / 2), w: Math.cos(roll / 2) });
+  for (let i = 0; i < rig.strings.length; i++) {
+    const s = rig.strings[i];
+    const a = posedAnchor(s.name, s.controlAnchor, pitch, yaw);
+    s.controlJoint.setAnchor1({ x: a.x, y: a.y, z: 0 });      // foreshortened + nod/turn pull
+    rig.posedAnchors[i] = a;
+  }
+  rig.barTip = { x: 0, y: CONTROL_HALF_V * Math.cos(pitch) }; // decorative top of the "+"
 }

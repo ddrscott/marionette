@@ -26,6 +26,7 @@
       <div class="stat"><span>fps</span><b><span id="fps">&ndash;</span></b></div>
       <div class="stat"><span>hand</span><b id="drop">LOST</b></div>
       <div class="stat"><span>string len</span><b><span id="slen">&ndash;</span>% of view</b></div>
+      <div class="stat"><span>tilt r/p/y</span><b><span id="tilts">0&deg; / 0&deg; / 0&deg;</span></b></div>
 
       <div class="row">
         <label>swing range <span class="val" id="rv">1.6</span> <span class="dim">(how far your hand throws it)</span></label>
@@ -35,11 +36,19 @@
         <label>gravity <span class="val" id="gv">9.8</span> <span class="dim">(low = floaty, high = snappy)</span></label>
         <input id="grav" type="range" min="3" max="22" step="0.5" value="9.8" />
       </div>
+      <div class="row">
+        <label>tilt range <span class="val" id="tv">1.0</span> <span class="dim">(roll/pitch/yaw of the control; 0 = flat)</span></label>
+        <input id="tilt" type="range" min="0" max="1.5" step="0.1" value="1.0" />
+      </div>
 
       <div class="note">
         The perch (white bar) sits at the top and follows your palm. The puppet hangs from it
         on a long center <b>string</b> that sags and swings; two thinner control lines run to the
         arms, so lifting the perch lifts the limbs.<br><br>
+        <b>Tilt</b> your hand and the control rotates with it: <b>roll</b> (in-plane lean) tips
+        the "+" and leans the puppet through the strings; <b>pitch</b> (nod fwd/back) and
+        <b>yaw</b> (turn left/right) foreshorten the bar and shift/turn the body. The dynamic
+        puppet stays in the screen plane — only the control leaves it.<br><br>
         The hand overlay (bottom-right) shows all 21 landmarks; the control point
         (landmark&nbsp;#9, the palm) is ringed in green, and its crosshair maps to the perch
         crosshair on stage.<br><br>

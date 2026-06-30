@@ -1,5 +1,5 @@
 import type RAPIER_NS from "@dimforge/rapier3d-compat";
-import { CONTROL_HALF_V, CONTROL_HALF_W, WORLD_VIEW_HEIGHT, type Rig, type Vec2 } from "./puppet.ts";
+import { WORLD_VIEW_HEIGHT, type Rig, type Vec2 } from "./puppet.ts";
 import { HAND_CONNECTIONS, type Landmark } from "./hands.ts";
 
 // Bodies rotate only about Z, so the world rotation is a single angle.
@@ -41,8 +41,18 @@ export class Renderer {
     const { ctx } = this;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-    const ct = rig.control.translation();        // control bar is kinematic, identity rotation
-    const controlPt = (a: Vec2): Vec2 => ({ x: ct.x + a.x, y: ct.y + a.y });
+    // The control body carries only ROLL (in-plane Z); pitch/yaw already live in the posed
+    // anchor positions (rig.posedAnchors / rig.barTip). Transform a posed control-local point to
+    // world by applying the body's roll then its translation — this lands on exactly the anchor
+    // points the solver uses, so the strings always stay attached to the foreshortened "+".
+    const ct = rig.control.translation();
+    const cr = rig.control.rotation();
+    const cz = 2 * Math.atan2(cr.z, cr.w); // roll angle
+    const cc = Math.cos(cz), cs = Math.sin(cz);
+    const controlPt = (a: Vec2): Vec2 => ({
+      x: ct.x + a.x * cc - a.y * cs,
+      y: ct.y + a.x * cs + a.y * cc,
+    });
 
     // (1) control-bar crosshair — the stage half of the hand->control visual link.
     ctx.strokeStyle = "rgba(57,217,138,0.16)";
@@ -55,8 +65,8 @@ export class Renderer {
     // (2) strings.
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    for (const s of rig.strings) {
-      const top = controlPt(s.controlAnchor);
+    rig.strings.forEach((s, i) => {
+      const top = controlPt(rig.posedAnchors[i]); // posed (foreshortened) attach point
       const end = localToWorld(s.body, s.bodyAnchor);
       if (s.kind === "chain") {
         ctx.strokeStyle = "#c9c9d2";
@@ -79,7 +89,7 @@ export class Renderer {
       ctx.beginPath();
       ctx.arc(this.sx(end.x), this.sy(end.y), 3, 0, Math.PI * 2);
       ctx.fill();
-    }
+    });
 
     // (3) puppet capsules.
     for (const part of rig.parts) {
@@ -93,12 +103,14 @@ export class Renderer {
       ctx.stroke();
     }
 
-    // (4) the horizontal control bar ("+") on top.
+    // (4) the horizontal control bar ("+") on top — drawn from the SAME posed anchors as the
+    // strings, so it foreshortens with pitch/yaw and the strings stay welded to the bar tips.
+    // strings index order (see ATTACH): 0 head, 1 lShoulder, 2 rShoulder, 3 lowerBack.
     ctx.strokeStyle = "#caa46a";
     ctx.lineWidth = 6;
     ctx.beginPath();
-    this.moveTo(controlPt({ x: -CONTROL_HALF_W, y: 0 })); this.lineTo(controlPt({ x: CONTROL_HALF_W, y: 0 }));
-    this.moveTo(controlPt({ x: 0, y: CONTROL_HALF_V })); this.lineTo(controlPt({ x: 0, y: -CONTROL_HALF_V }));
+    this.moveTo(controlPt(rig.posedAnchors[1])); this.lineTo(controlPt(rig.posedAnchors[2])); // horizontal
+    this.moveTo(controlPt(rig.barTip)); this.lineTo(controlPt(rig.posedAnchors[3]));           // vertical
     ctx.stroke();
     // bright dot at the held center (where the hand maps to).
     ctx.fillStyle = "#fff";
