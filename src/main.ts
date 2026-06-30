@@ -77,7 +77,7 @@ let world: RAPIER.World;
 let puppets: Puppet[] = [];
 let renderer: Renderer;
 let hands: Hands;
-let lastSeq = -1; // last worker-result id we processed (detection is async, at camera rate)
+let lastVideoTime = -1;
 let frames = 0;
 let fpsT = performance.now();
 
@@ -107,18 +107,18 @@ function readFingerPositions(h: HandState, landmarks: Landmark[], now: number): 
 // Detect both hands and assign them to the two puppets by wrist screen-x (further screen-left -> left
 // puppet). Picks each hand's no-crossing binding from its handedness. Handles 0 / 1 / 2 hands.
 function readHands(now: number): void {
-  // Detection runs in a Web Worker (§5): pump a fresh camera frame to it (gated + one in
-  // flight), then consume its LATEST result. We re-assign only when a NEW result has arrived
-  // (seq changed); otherwise the puppets hold their last-known hands — the decoupled loop.
-  hands.pump(now);
-  if (hands.seq === lastSeq) return;
-  lastSeq = hands.seq;
+  // Only run detection on a fresh camera frame (§5: decouple detection from physics).
+  if (video.currentTime === lastVideoTime) return;
+  lastVideoTime = video.currentTime;
+  const res = hands.landmarker.detectForVideo(video, now);
 
+  const lmArr = res.landmarks ?? [];
+  const handArr = res.handedness ?? res.handednesses ?? [];
   type Det = { landmarks: Landmark[]; cat: string; wristX: number };
-  const dets: Det[] = hands.latest.map((d) => ({
-    landmarks: d.landmarks,
-    cat: d.handedness,    // categoryName from the worker ("Left"/"Right", unmirrored)
-    wristX: stageX(d.landmarks[0]), // mirrored: +x = screen-right
+  const dets: Det[] = lmArr.map((lm, i) => ({
+    landmarks: lm,
+    cat: handArr[i]?.[0]?.categoryName ?? "Right",
+    wristX: stageX(lm[0]), // mirrored: +x = screen-right
   }));
 
   handStates[0].present = false; handStates[0].landmarks = null;

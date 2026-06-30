@@ -47,8 +47,7 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
 ## What it does
 
 - **Fingers → control points:** MediaPipe Hand Landmarker (VIDEO mode, **2 hands**, GPU) gives 21
-  landmarks per hand. **Detection runs in a Web Worker** (off the render thread — see
-  [Detection off-thread](#detection-off-thread-web-worker)). Each of the five fingertips (landmarks 4/8/12/16/20) is mapped through stage
+  landmarks per hand. Each of the five fingertips (landmarks 4/8/12/16/20) is mapped through stage
   space (`stageX/stageY` in `control.ts` — mirrored x, y-up) to a **kinematic control point**,
   smoothed by its own One Euro filter (each hand keeps its own 5 x/y filters). The full detection
   range maps to the full view, both axes, scaled by the **swing range** slider (`0–1`). Moving your
@@ -121,49 +120,14 @@ hand drives the puppet on its side. The split is clean:
   the binding) — the best guess for a mirrored view, but **unverified on a live webcam**. If on camera
   the two hands come out with **crossed strings**, flip `HANDEDNESS_LABEL_IS_MIRRORED` to `false`.
 
-## Detection off-thread (Web Worker)
-
-**Resolves PRD §5's note** — *"Detection blocks the main thread — fine for spike-1; move to a Web
-Worker if frame rate suffers."* With `numHands: 2`, the synchronous `detectForVideo` on the render
-thread roughly doubled the per-hand cost and pinned fps to ~30 (physics is only ~1.5 ms/step — not
-the sim). Detection now runs in a **Web Worker** so the physics/render loop never waits on inference:
-
-- **Worker (`handsWorker.ts`)** owns the `@mediapipe/tasks-vision` import + the GPU inference. It
-  builds the `HandLandmarker` once (same VIDEO / `numHands: 2` / GPU delegate / CDN WASM + model as
-  before), then on each posted frame runs `detectForVideo` and posts back per-hand
-  `{ landmarks, handedness(categoryName) }` + the frame timestamp. The main bundle imports **zero**
-  `@mediapipe` code (the vision lib lands only in the worker chunk; `HAND_CONNECTIONS` is hardcoded
-  in `handsProtocol.ts`).
-- **Frame transfer (main → worker):** each new camera frame, the main thread does
-  `createImageBitmap(video)` and `worker.postMessage({ bmp, t }, [bmp])` — a zero-copy **transfer**.
-  The worker `close()`s the bitmap after detecting (every path, no leak).
-- **Backpressure — one frame in flight.** `hands.ts` won't ship a new frame until the previous
-  result returns (an `inFlight` guard), and only when `video.currentTime` advanced. This keeps
-  latency low and stops a frame backlog from building lag.
-- **Decoupled loop preserved (§5).** Physics steps every `requestAnimationFrame`; `main.ts` consumes
-  the worker's **latest** result and re-assigns hands only when a new one arrives (`hands.seq`),
-  otherwise the puppets hold their last-known hands. Per-hand assignment by wrist-x, the handedness
-  binding (`bindingForHandedness` + `HANDEDNESS_LABEL_IS_MIRRORED`), `drivePuppet`, the overlay, the
-  0/1/2-hand handling, and the hand-LOST indicator are all **unchanged** — they already consumed
-  landmarks + a handedness category string.
-- **Typed both directions.** `handsProtocol.ts` is a dependency-free contract; every `postMessage`
-  payload is a typed `WorkerInbound`/`WorkerOutbound` (no `any` holes).
-
-> **Not verified headlessly:** the build bundles the worker and the message types check, but the
-> actual two-hand **fps win**, worker round-trip latency, and MediaPipe-in-worker runtime init (CDN
-> WASM in a module worker) need a **real Chrome + webcam**. Confirm two-hand fps/feel live and watch
-> the console for any `[handsWorker]` init error.
-
 ## Architecture
 
 | File | Responsibility |
 |---|---|
-| `src/main.ts` | Loop: physics steps every frame; reads the **worker's latest** detection (re-assigns only when a new result arrives — `hands.seq`). Assigns the two hands to the two puppets by wrist screen-x, picks each hand's binding from handedness, drives each puppet's controls **by target part** (per-hand One Euro filters), and owns the sliders. |
+| `src/main.ts` | Loop: physics steps every frame; `detectForVideo` only on new camera frames. Assigns the two hands to the two puppets by wrist screen-x, picks each hand's binding from handedness, drives each puppet's controls **by target part** (per-hand One Euro filters), and owns the sliders. |
 | `src/control.ts` | **Dependency-free** `stageX`/`stageY` (landmark → mirrored, y-up stage space). No MediaPipe import. |
 | `src/puppet.ts` | Rapier rig, split **world + puppet**: `buildWorld` makes the shared world + floor; `addPuppet(world, xOffset, binding)` adds one puppet (5 controls + 5 chain strings + torso/limbs). The `FINGERS` binding, its `mirrorBinding` L↔R helper, the `HANDEDNESS_LABEL_IS_MIRRORED` flip, and all rig constants live here. |
-| `src/hands.ts` | **Main-thread interface** to detection: owns the camera + spawns the detection worker, pumps frames to it (one in flight, gated to new camera frames), and exposes the **latest** per-hand `{ landmarks, handedness }`. Re-exports `HAND_CONNECTIONS` + the `Landmark` type — **no `@mediapipe` import on the main thread**. |
-| `src/handsWorker.ts` | **Web Worker** (Vite-bundled). Owns the heavy `@mediapipe/tasks-vision` import + GPU inference: builds the `HandLandmarker` (VIDEO, **`numHands: 2`**, GPU delegate, CDN WASM + model) and runs `detectForVideo` on each transferred camera frame, posting back per-hand `{ landmarks, handedness }`. |
-| `src/handsProtocol.ts` | **Dependency-free** main↔worker message contract: the typed `WorkerInbound`/`WorkerOutbound` unions, the `Landmark`/`WorkerHand` types, and a hardcoded `HAND_CONNECTIONS` (so the main bundle never pulls in `@mediapipe`). |
+| `src/hands.ts` | MediaPipe init (CDN WASM + model, **`numHands: 2`**) and `HAND_CONNECTIONS`. |
 | `src/draw.ts` | 2D-canvas renderer (`clear()` + per-puppet `drawPuppet()`, adaptive scale, finger-coloured strings + control points) + both-hands landmark overlay (`drawHands`) + physics-debug overlay. |
 | `src/oneEuro.ts` | One Euro filter, ported verbatim from the validated dot test. |
 | `puppet-spike-1.html` | Original single-file spike, kept for reference. |
