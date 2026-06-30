@@ -1,5 +1,5 @@
 import type RAPIER_NS from "@dimforge/rapier3d-compat";
-import { WORLD_VIEW_HEIGHT, type Rig, type Vec2 } from "./puppet.ts";
+import { CONTROL_HALF_V, CONTROL_HALF_W, WORLD_VIEW_HEIGHT, type Rig, type Vec2 } from "./puppet.ts";
 import { HAND_CONNECTIONS, type Landmark } from "./hands.ts";
 
 // Bodies rotate only about Z, so the world rotation is a single angle.
@@ -34,69 +34,77 @@ export class Renderer {
 
   private sx(x: number): number { return this.canvas.width / 2 + x * this.scale; }
   private sy(y: number): number { return this.canvas.height - y * this.scale; }
+  private lineTo(p: Vec2): void { this.ctx.lineTo(this.sx(p.x), this.sy(p.y)); }
+  private moveTo(p: Vec2): void { this.ctx.moveTo(this.sx(p.x), this.sy(p.y)); }
 
   draw(rig: Rig): void {
     const { ctx } = this;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-    const perch = rig.perch.translation();
+    const ct = rig.control.translation();        // control bar is kinematic, identity rotation
+    const controlPt = (a: Vec2): Vec2 => ({ x: ct.x + a.x, y: ct.y + a.y });
 
-    // (1) perch crosshair — the stage half of the hand->perch visual link.
-    ctx.strokeStyle = "rgba(57,217,138,0.18)";
+    // (1) control-bar crosshair — the stage half of the hand->control visual link.
+    ctx.strokeStyle = "rgba(57,217,138,0.16)";
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(this.sx(perch.x), 0); ctx.lineTo(this.sx(perch.x), this.canvas.height);
-    ctx.moveTo(0, this.sy(perch.y)); ctx.lineTo(this.canvas.width, this.sy(perch.y));
+    ctx.moveTo(this.sx(ct.x), 0); ctx.lineTo(this.sx(ct.x), this.canvas.height);
+    ctx.moveTo(0, this.sy(ct.y)); ctx.lineTo(this.canvas.width, this.sy(ct.y));
     ctx.stroke();
 
-    // (2) hand strings (control lines) — drawn behind, thin and dim.
-    ctx.strokeStyle = "rgba(57,217,138,0.45)";
-    ctx.lineWidth = 1.5;
-    for (const hs of rig.handStrings) {
-      const w = localToWorld(hs.arm, hs.armAnchor);
-      ctx.beginPath();
-      ctx.moveTo(this.sx(perch.x), this.sy(perch.y));
-      ctx.lineTo(this.sx(w.x), this.sy(w.y));
-      ctx.stroke();
-    }
-
-    // (3) center string — polyline through the segment chain; sags and swings.
-    ctx.strokeStyle = "#c9c9d2";
-    ctx.lineWidth = 2;
-    ctx.lineJoin = "round";
+    // (2) strings.
     ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(this.sx(perch.x), this.sy(perch.y));
-    for (const seg of rig.chain) {
-      const c = seg.translation();
-      ctx.lineTo(this.sx(c.x), this.sy(c.y));
+    ctx.lineJoin = "round";
+    for (const s of rig.strings) {
+      const top = controlPt(s.controlAnchor);
+      const end = localToWorld(s.body, s.bodyAnchor);
+      if (s.kind === "chain") {
+        ctx.strokeStyle = "#c9c9d2";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        this.moveTo(top);
+        for (const seg of s.segs) { const c = seg.translation(); this.lineTo({ x: c.x, y: c.y }); }
+        this.lineTo(end);
+        ctx.stroke();
+      } else {
+        ctx.strokeStyle = "rgba(201,201,210,0.7)";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        this.moveTo(top);
+        this.lineTo(end);
+        ctx.stroke();
+      }
+      // attach dot on the puppet — marks the control point (and the customization handle).
+      ctx.fillStyle = "#39d98a";
+      ctx.beginPath();
+      ctx.arc(this.sx(end.x), this.sy(end.y), 3, 0, Math.PI * 2);
+      ctx.fill();
     }
-    const tt = localToWorld(rig.torso, rig.torsoTopAnchor);
-    ctx.lineTo(this.sx(tt.x), this.sy(tt.y));
-    ctx.stroke();
 
-    // (4) puppet capsules.
+    // (3) puppet capsules.
     for (const part of rig.parts) {
       const e1 = localToWorld(part.body, { x: 0, y: part.half });
       const e2 = localToWorld(part.body, { x: 0, y: -part.half });
       ctx.strokeStyle = part.color;
       ctx.lineWidth = part.rad * 2 * this.scale;
-      ctx.lineCap = "round";
       ctx.beginPath();
-      ctx.moveTo(this.sx(e1.x), this.sy(e1.y));
-      ctx.lineTo(this.sx(e2.x), this.sy(e2.y));
+      this.moveTo(e1);
+      this.lineTo(e2);
       ctx.stroke();
     }
 
-    // (5) perch control bar — sits on top.
-    const barHalf = 0.55 * this.scale;
-    ctx.strokeStyle = "#fff";
-    ctx.lineWidth = 5;
-    ctx.lineCap = "round";
+    // (4) the horizontal control bar ("+") on top.
+    ctx.strokeStyle = "#caa46a";
+    ctx.lineWidth = 6;
     ctx.beginPath();
-    ctx.moveTo(this.sx(perch.x) - barHalf, this.sy(perch.y));
-    ctx.lineTo(this.sx(perch.x) + barHalf, this.sy(perch.y));
+    this.moveTo(controlPt({ x: -CONTROL_HALF_W, y: 0 })); this.lineTo(controlPt({ x: CONTROL_HALF_W, y: 0 }));
+    this.moveTo(controlPt({ x: 0, y: CONTROL_HALF_V })); this.lineTo(controlPt({ x: 0, y: -CONTROL_HALF_V }));
     ctx.stroke();
+    // bright dot at the held center (where the hand maps to).
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(this.sx(ct.x), this.sy(ct.y), 4, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
 
@@ -134,7 +142,7 @@ export function drawHand(
     ctx.fill();
   }
 
-  // control point #9 (palm) — ringed + crosshair, the cam half of the perch link.
+  // control point #9 (palm) — ringed + crosshair, the cam half of the control link.
   const ctrl = landmarks[9];
   const cx = X(ctrl), cy = Y(ctrl);
   ctx.strokeStyle = "rgba(57,217,138,0.45)";

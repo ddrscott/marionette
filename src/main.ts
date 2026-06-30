@@ -1,6 +1,6 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import { OneEuro } from "./oneEuro.ts";
-import { buildRig, CENTER_STRING_LEN, PERCH_BASE_Y, WORLD_VIEW_HEIGHT, type Rig } from "./puppet.ts";
+import { buildRig, CENTER_STRING_LEN, CONTROL_BASE_Y, WORLD_VIEW_HEIGHT, type Rig } from "./puppet.ts";
 import { initHands, type Hands, type Landmark } from "./hands.ts";
 import { Renderer, drawHand } from "./draw.ts";
 
@@ -23,7 +23,7 @@ $("slen").textContent = Math.round((CENTER_STRING_LEN / WORLD_VIEW_HEIGHT) * 100
 // ---- filters + state ----
 const fpx = new OneEuro();
 const fpy = new OneEuro();
-const target = { x: 0, y: PERCH_BASE_Y };
+const target = { x: 0, y: CONTROL_BASE_Y };
 let latestLandmarks: Landmark[] | null = null;
 
 let rig: Rig;
@@ -56,7 +56,7 @@ function readHand(now: number): void {
     const px = fpx.filter(lm.x, now);
     const py = fpy.filter(lm.y, now);
     target.x = (0.5 - px) * 2 * swingRange;        // mirror X, scale to swing range
-    target.y = PERCH_BASE_Y + (0.5 - py) * 1.5;    // hand up/down -> perch up/down (small range)
+    target.y = CONTROL_BASE_Y + (0.5 - py) * 1.5;  // hand up/down -> control up/down (small range)
   } else {
     latestLandmarks = null;
     $("drop").style.visibility = "visible";
@@ -70,9 +70,9 @@ function loop(): void {
 
   readHand(now);
 
-  // physics steps every frame; perch is driven by the last known smoothed target.
+  // physics steps every frame; the control bar is driven by the last known smoothed target.
   rig.world.gravity = { x: 0, y: -gravityY, z: 0 };
-  rig.perch.setNextKinematicTranslation({ x: target.x, y: target.y, z: 0 });
+  rig.control.setNextKinematicTranslation({ x: target.x, y: target.y, z: 0 });
   rig.world.step();
 
   renderer.draw(rig);
