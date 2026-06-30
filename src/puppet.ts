@@ -39,7 +39,9 @@ const SEG_COUNT = 10;    // segments per string
 const SEG_RAD = 0.04;    // thin
 const SEG_DENSITY = 0.3; // light, so a chain can't overpower the puppet it hangs
 const HEAD_SLACK = 1.0;  // weight-bearer: taut
-const HAND_SLACK = 1.05; // a touch of fold room
+const HAND_SLACK = 1.0;  // side strings: length = straight-line bar-end->hand, so they're STRAIGHT
+                         // (taut) at the level rest pose (= main string + the hand's drop below the
+                         // head anchor). slack > 1 would let them sag.
 const LOOSE_ROPE_SLACK = 1.05;
 
 // Collision filtering (32-bit: high 16 = membership, low 16 = mask of groups it collides with).

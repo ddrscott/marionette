@@ -159,9 +159,11 @@ demonstrably moves the torso.
 - `SOLVER_ITERATIONS` (`48`) — a 10-link series chain of light links needs many passes to stay
   rigid. 48 holds ~1–2% stretch at normal speed (~7% under an aggressive combined move+tilt); it
   plateaus past ~48 (the residual is series-compliance, not iteration count).
-- `HEAD_SLACK` (`~1.0`, weight-bearer) / `HAND_SLACK` (`~1.05`, bar-ends→hands) / `LOOSE_ROPE_SLACK`
-  (`~1.05`, lower back) — per-string chain length = `restDist * slack`. `1.0` = taut; `>1` adds fold
-  room so it drapes instead of spawning dead-straight.
+- `HEAD_SLACK` (`1.0`, weight-bearer) / `HAND_SLACK` (`1.0`, bar-ends→hands, straight at rest) /
+  `LOOSE_ROPE_SLACK` (`~1.05`, lower back) — per-string chain length = `restDist * slack`. `1.0` =
+  length is exactly the straight-line bar-end→body distance, so the string is **straight/taut** at
+  the level rest pose (the hand strings ≈ main string + the hand's drop below the head anchor);
+  `>1` adds fold room so it drapes.
 - `CONTROL_HALF_W` / `CONTROL_HALF_V` — how wide the control bar spreads the hand strings
   and how far its cross bar reaches for head/lower-back.
 - `WORLD_VIEW_HEIGHT`, `CONTROL_BASE_Y`, `CENTER_STRING_LEN`, `FLOOR_TOP` — rig geometry, head-rope length, floor height.
