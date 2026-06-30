@@ -50,9 +50,14 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
   landmarks per hand. **Detection runs in a CLASSIC Web Worker** (off the render thread — see
   [Detection off-thread](#detection-off-thread-classic-web-worker)). Each of the five fingertips (landmarks 4/8/12/16/20) is mapped through stage
   space (`stageX/stageY` in `control.ts` — mirrored x, y-up) to a **kinematic control point**,
-  smoothed by its own One Euro filter (each hand keeps its own 5 x/y filters). The full detection
-  range maps to the full view, both axes, scaled by the **swing range** slider (`0–1`). Moving your
-  whole hand moves all five together; spreading/curling a finger moves that control point alone.
+  smoothed by its own One Euro filter (each hand keeps its own 5 x/y filters). A **play margin** insets
+  the camera→play mapping (the central `1 − 2m` of the camera fills the **whole** canvas; default `m =
+  0.10` → central 80%), so the play-area edge is reachable while your hand stays comfortably inside the
+  frame, and pushing into the outer margin band drives the control **offscreen** (overshoot off the
+  sides/top). That mapping is then scaled by the **swing range** slider (`0–1`) — the two **compose**:
+  margin amplifies camera→play so edges are reachable + overshoot, swing range sets how much of the
+  canvas the puppet covers. Moving your whole hand moves all five together; spreading/curling a finger
+  moves that control point alone.
   Because detection lands off-thread at a sub-60 rate, each control then **glides** to its target
   every render frame with a critically-damped **SmoothDamp** spring (the **smoothing** slider) — so
   the kinematic joint never sees a one-step teleport that would whip the puppet.
@@ -91,7 +96,9 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
   driving fingertips ringed in their finger colours and numbered 1–5**, matching the on-stage
   control points — so the finger→part mapping reads at a glance.
 - **Instrumentation:** fps, hand-LOST indicator, a **swing-range slider** (`0–1` =
-  fraction of full-screen reach, default `1.0`), gravity slider,
+  fraction of full-screen reach, default `1.0`), a **play-margin slider** (`0–0.25`, default `0.10` =
+  central 80% of the camera fills the canvas; the margin band overshoots offscreen — composes with
+  swing range, see [Fingers → control points](#what-it-does)), gravity slider,
   a **drag slider** (linear damping / air resistance; low = falls naturally, high =
   floats but settles fast), a **weight slider** (puppet mass multiplier; runtime `setPuppetWeight` rescales each part's
   density — heavier parts keep more tension on the chains, though they also lag more under fast
@@ -214,7 +221,7 @@ never waits on inference:
 | File | Responsibility |
 |---|---|
 | `src/main.ts` | Loop: physics steps every frame; reads the **worker's latest** detection (re-assigns only when a new result arrives — `hands.seq`). Assigns the two hands to the two puppets by wrist screen-x, picks each hand's binding from handedness, drives each puppet's controls **by target part** (per-hand One Euro filters), and owns the sliders. |
-| `src/control.ts` | **Dependency-free** `stageX`/`stageY` (landmark → mirrored, y-up stage space). No MediaPipe import. |
+| `src/control.ts` | **Dependency-free** `stageX`/`stageY` (landmark → mirrored, y-up stage space; optional `m` play-margin rescales by `1/(1−2m)` around centre, default `0` = no inset). No MediaPipe import. |
 | `src/puppet.ts` | Rapier rig, split **world + puppet**: `buildWorld` makes the shared world + floor; `addPuppet(world, xOffset, binding)` adds one puppet (5 controls + 5 chain strings + torso/limbs). The `FINGERS` binding, its `mirrorBinding` L↔R helper, the `HANDEDNESS_LABEL_IS_MIRRORED` flip, and all rig constants live here. |
 | `src/hands.ts` | **Main-thread interface** to detection: owns the camera + spawns the CLASSIC detection worker, pumps frames to it (one in flight, gated to new camera frames), and exposes the **latest** per-hand `{ landmarks, handedness }`. Also owns camera **source/quality switching** — `useSource({deviceId, tier})` stops the old tracks and re-acquires the stream (quality tiers in `QUALITY_TIERS`), `listCameras()` enumerates video inputs. Re-exports `HAND_CONNECTIONS` + the `Landmark` type — **no `@mediapipe` import on the main thread**. |
 | `src/handsWorker.ts` | **CLASSIC Web Worker**, IIFE-wrapped, **no ESM import**. `importScripts` the vendored MediaPipe CJS bundle (via an `exports`/`module` shim), builds the `HandLandmarker` (VIDEO, **`numHands: 2`**, model fetched in-worker as `modelAssetBuffer`, GPU→CPU fallback), and runs `detectForVideo` on each transferred frame, posting back per-hand `{ landmarks, handedness }`. Logs each init stage. |
@@ -264,6 +271,13 @@ Control-path tunables in `src/main.ts`:
 
 - `swingRange` (the **swing range** slider, `0–1`) — scales each fingertip's mapped position; `1.0`
   = full screen. `VERT_CENTER` / `VERT_SPAN` set the vertical band (full `[0,12]`).
+- `playMargin` (the **play margin** slider, `0–0.25`, default `0.10`) — insets the camera→play
+  mapping in `control.ts`: the centred stage coord is divided by `(1 − 2·playMargin)`, so the central
+  `1 − 2m` of the camera fills the full canvas and the outer margin band maps **offscreen**
+  (overshoot). Applied to **both** axes, **before** One Euro, `swingRange`, and the bottom-only floor
+  clamp (so left/right/top overshoot is visible; the bottom still rests on the floor). `0` reproduces
+  the old edge-to-edge behavior exactly. **Composes with** `swingRange` — it doesn't replace it. Does
+  **not** affect wrist-x side assignment (that call passes no margin). Clamped so `(1 − 2m) > 0`.
 - `POS_MIN_CUTOFF` (`5.0`) / `POS_BETA` — per-finger One Euro smoothing. The raw landmark overlay has
   no perceptible lag, so little smoothing is needed; higher = snappier, lower = steadier.
 - `smoothTime` (`0.01`, the **smoothing** slider, seconds) — the SmoothDamp control spring's

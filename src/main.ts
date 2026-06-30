@@ -26,6 +26,10 @@ const LS_QUALITY = "handbattle.cam.quality";
 
 // ---- tunables ----
 let swingRange = 1.0; // 0..1 = fraction of full-screen reach (scales each fingertip's mapped position)
+// Play-area margin: inset the camera->play mapping so the central (1 - 2*playMargin) of the camera
+// maps to the FULL canvas (the play-area edge reaches the canvas edge; the outer margin band drives
+// the control OFFSCREEN). Composes with swingRange (which scales reach); 0 = no inset = old behavior.
+let playMargin = 0.10; // fraction inset per side (0..0.25 via the slider)
 let gravityY = 9.8;
 let drag = DEFAULT_LINEAR_DAMPING;  // LINEAR damping = air-resistance/float knob (angular stays fixed)
 let weight = DEFAULT_PUPPET_WEIGHT; // puppet mass multiplier
@@ -37,6 +41,11 @@ let friction = DEFAULT_STRING_FRICTION; // per-segment damping = string "joint f
 // Higher = smoother but laggier; 0 = snap (old behavior).
 let smoothTime = 0.01; // seconds, roughly "time to reach the target" (tuned: kills the whip, stays tight)
 $("range").oninput = (e) => { swingRange = +(e.target as HTMLInputElement).value; $("rv").textContent = swingRange.toFixed(2); };
+$("margin").oninput = (e) => {
+  // clamp keeps (1 - 2m) > 0 even if the slider bounds ever change (slider max 0.25 already safe)
+  playMargin = Math.min(0.49, Math.max(0, +(e.target as HTMLInputElement).value));
+  $("mv").textContent = playMargin.toFixed(2);
+};
 $("grav").oninput = (e) => { gravityY = +(e.target as HTMLInputElement).value; $("gv").textContent = gravityY.toFixed(1); };
 $("damp").oninput = (e) => {
   drag = +(e.target as HTMLInputElement).value;
@@ -142,8 +151,10 @@ function onResize(): void {
 function readFingerPositions(h: HandState, landmarks: Landmark[], now: number): void {
   for (let j = 0; j < FINGERTIPS.length; j++) {
     const lm = landmarks[FINGERTIPS[j]];
-    const fx = h.ffx[j].filter(stageX(lm), now); // stage space: mirrored x, y-up; ∈ [-0.5, 0.5]
-    const fy = h.ffy[j].filter(stageY(lm), now);
+    // playMargin insets the camera->play mapping: central (1-2m) of camera -> full canvas, margin
+    // band -> offscreen. Applied to BOTH axes before One Euro / swingRange / the floor clamp below.
+    const fx = h.ffx[j].filter(stageX(lm, playMargin), now); // stage space: mirrored x, y-up
+    const fy = h.ffy[j].filter(stageY(lm, playMargin), now);
     h.pos[j].x = fx * renderer.worldWidth * swingRange;
     // clamp bottom only: control point rests at the floor surface instead of sinking below it
     // (top/left/right remain free — Y above the view and X past the edges are allowed)
