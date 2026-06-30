@@ -114,7 +114,9 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
   fraction of full-screen reach, default `1.0`), gravity slider, a **tilt-range slider** (`0–1` =
   fraction of full roll/pitch/yaw, default `1.0`; `0` = flat) with a live **roll/pitch/yaw degree
   readout**, a **damping slider** (how fast swings settle; `0` = swings forever), a
-  string-length-% readout, and a **debug: physics lines** checkbox — overlays Rapier's raw
+  a **weight slider** (puppet mass multiplier; runtime `setPuppetWeight` rescales each part's
+  density — heavier parts keep more tension on the chains, though they also lag more under fast
+  yanks), a string-length-% readout, and a **debug: physics lines** checkbox — overlays Rapier's raw
   `world.debugRender()` segments (every chain link + joint) plus each chain's measured summed length
   vs `nominalLen` and live **stretch %** (red past 0.3%), to watch how much the chains actually give.
 - **Swing damping:** every dynamic body (torso, limbs, string segments) carries linear + angular

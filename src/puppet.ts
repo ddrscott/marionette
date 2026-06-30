@@ -55,7 +55,14 @@ const FLOOR_HALF_W = 50; // wide enough to span any viewport aspect
 const FLOOR_HALF_D = 1;  // z-thickness so the z-locked puppet (z=0) always overlaps the floor
 
 export interface Vec2 { x: number; y: number; }
-export interface Capsule { body: RAPIER_NS.RigidBody; half: number; rad: number; color: string; }
+export interface Capsule {
+  body: RAPIER_NS.RigidBody; half: number; rad: number; color: string;
+  collider: RAPIER_NS.Collider; baseDensity: number; // for the live weight slider (setPuppetWeight)
+}
+
+// Puppet weight multiplier. A heavier puppet hangs with more weight, so gravity keeps the chains
+// under more tension (tauter, less floppy). Live via the weight slider / setPuppetWeight.
+export const DEFAULT_PUPPET_WEIGHT = 4;
 
 // A puppet string: a CHAIN of stiff segment bodies linked by spherical joints, from a point on the
 // control to a point on a body. Inextensible (rigid links) but folds at every hinge.
@@ -148,11 +155,11 @@ export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
 
   const limb = (cx: number, cy: number, half: number, rad: number, density: number, color: string) => {
     const body = world.createRigidBody(dyn(cx, cy));
-    world.createCollider(
+    const collider = world.createCollider(
       RAPIER.ColliderDesc.capsule(half, rad).setDensity(density).setCollisionGroups(PUPPET_GROUP),
       body,
     );
-    parts.push({ body, half, rad, color });
+    parts.push({ body, half, rad, color, collider, baseDensity: density });
     return body;
   };
 
@@ -258,4 +265,14 @@ export function setDamping(rig: Rig, linear: number, angular: number): void {
   const apply = (b: RAPIER_NS.RigidBody) => { b.setLinearDamping(linear); b.setAngularDamping(angular); };
   for (const p of rig.parts) apply(p.body);
   for (const s of rig.strings) for (const seg of s.segs) apply(seg);
+}
+
+// Scale the puppet's mass at runtime (each part's density = baseDensity * weight). Heavier parts
+// keep more tension on the chains. The string segments are left light on purpose — the puppet should
+// out-pull the strings, not the other way round.
+export function setPuppetWeight(rig: Rig, weight: number): void {
+  for (const p of rig.parts) {
+    p.collider.setDensity(p.baseDensity * weight);
+    p.body.recomputeMassPropertiesFromColliders();
+  }
 }
