@@ -45,6 +45,10 @@
         <input id="weight" type="range" min="1" max="12" step="0.5" value="4" />
       </div>
       <div class="row">
+        <label>string friction <span class="val" id="fv">8.0</span> <span class="dim">(joint friction; low = floppy, high = stiff/settles but laggy)</span></label>
+        <input id="fric" type="range" min="0" max="20" step="0.5" value="8" />
+      </div>
+      <div class="row">
         <label><input id="debugChk" type="checkbox" /> debug: physics lines <span class="dim">(raw engine segments + stretch%; costs fps)</span></label>
       </div>
 

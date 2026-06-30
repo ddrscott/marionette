@@ -12,8 +12,17 @@ export const CONTROL_BASE_Y = 11; // default height of the finger control points
 // Damping. LINEAR damping is velocity drag = air resistance: too much caps fall speed at terminal
 // velocity (≈ gravity/linDamp) and the puppet FLOATS. Kept low (0.4 → natural fall); the slider
 // raises it. ANGULAR damping settles spin without touching the fall, so it stays higher.
+// These apply to the PUPPET PARTS only.
 export const DEFAULT_LINEAR_DAMPING = 0.4;
 export const DEFAULT_ANGULAR_DAMPING = 1.0;
+
+// STRING FRICTION — damping on the chain SEGMENTS, decoupled from the puppet's fall. The heavy
+// segments otherwise wobble in long S-curves and take ~20s to rest; this is the "joint friction"
+// (per-link velocity/spin drag) that calms them. Higher = stiffer/settles faster; too high and the
+// strings lag the control (sluggish). Live via the string-friction slider. Segment angular damping =
+// friction * STRING_ANG_RATIO (bending needs more than translation).
+export const DEFAULT_STRING_FRICTION = 8;
+const STRING_ANG_RATIO = 2;
 
 export const CENTER_STRING_LEN = 6.2; // head string length -> 51.7% of a 12u view (> 50% required)
 
@@ -220,6 +229,9 @@ export function addPuppet(
         RAPIER.ColliderDesc.capsule(segHalf, SEG_RAD).setDensity(SEG_DENSITY).setCollisionGroups(STRING_GROUP),
         seg,
       );
+      // string friction: heavily damp the link (decoupled from the puppet) so chains settle, not floppy.
+      seg.setLinearDamping(DEFAULT_STRING_FRICTION);
+      seg.setAngularDamping(DEFAULT_STRING_FRICTION * STRING_ANG_RATIO);
       segs.push(seg);
       spherical(prev, prevBottom, seg, { x: 0, y: segHalf });
       prev = seg;
@@ -246,11 +258,20 @@ export function addPuppet(
   return { controls, parts, torso, strings, binding, xOffset };
 }
 
-// Set swing damping on every dynamic body (parts + string segments). Controls are kinematic (excluded).
+// Swing damping on the PUPPET PARTS (the "drag" / float knob). Segments are handled separately by
+// setStringFriction so the string settling is decoupled from the puppet's fall.
 export function setDamping(puppet: Puppet, linear: number, angular: number): void {
-  const apply = (b: RAPIER_NS.RigidBody) => { b.setLinearDamping(linear); b.setAngularDamping(angular); };
-  for (const p of puppet.parts) apply(p.body);
-  for (const s of puppet.strings) for (const seg of s.segs) apply(seg);
+  for (const p of puppet.parts) { p.body.setLinearDamping(linear); p.body.setAngularDamping(angular); }
+}
+
+// String friction (the "joint friction" knob): per-segment velocity + spin damping. Decoupled from
+// the parts so cranking it calms the floppy chains WITHOUT floating the puppet's fall. Too high and
+// the strings lag the control (sluggish).
+export function setStringFriction(puppet: Puppet, friction: number): void {
+  for (const s of puppet.strings) for (const seg of s.segs) {
+    seg.setLinearDamping(friction);
+    seg.setAngularDamping(friction * STRING_ANG_RATIO);
+  }
 }
 
 // Scale puppet mass at runtime (part density = baseDensity * weight). Segments stay light on purpose.

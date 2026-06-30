@@ -1,9 +1,9 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import { OneEuro } from "./oneEuro.ts";
 import {
-  buildWorld, addPuppet, setDamping, setPuppetWeight,
+  buildWorld, addPuppet, setDamping, setPuppetWeight, setStringFriction,
   FINGERTIPS, bindingForHandedness, PUPPET_X_OFFSET, RIGHT_HAND_BINDING, LEFT_HAND_BINDING,
-  DEFAULT_LINEAR_DAMPING, DEFAULT_ANGULAR_DAMPING, DEFAULT_PUPPET_WEIGHT,
+  DEFAULT_LINEAR_DAMPING, DEFAULT_ANGULAR_DAMPING, DEFAULT_PUPPET_WEIGHT, DEFAULT_STRING_FRICTION,
   CENTER_STRING_LEN, WORLD_VIEW_HEIGHT, FLOOR_TOP, type Puppet, type FingerBind, type TargetName,
 } from "./puppet.ts";
 import { stageX, stageY } from "./control.ts";
@@ -22,6 +22,7 @@ let swingRange = 1.0; // 0..1 = fraction of full-screen reach (scales each finge
 let gravityY = 9.8;
 let drag = DEFAULT_LINEAR_DAMPING;  // LINEAR damping = air-resistance/float knob (angular stays fixed)
 let weight = DEFAULT_PUPPET_WEIGHT; // puppet mass multiplier
+let friction = DEFAULT_STRING_FRICTION; // per-segment damping = string "joint friction" (settles floppy chains)
 $("range").oninput = (e) => { swingRange = +(e.target as HTMLInputElement).value; $("rv").textContent = swingRange.toFixed(2); };
 $("grav").oninput = (e) => { gravityY = +(e.target as HTMLInputElement).value; $("gv").textContent = gravityY.toFixed(1); };
 $("damp").oninput = (e) => {
@@ -33,6 +34,11 @@ $("weight").oninput = (e) => {
   weight = +(e.target as HTMLInputElement).value;
   $("wv").textContent = weight.toFixed(1);
   for (const p of puppets) setPuppetWeight(p, weight);
+};
+$("fric").oninput = (e) => {
+  friction = +(e.target as HTMLInputElement).value;
+  $("fv").textContent = friction.toFixed(1);
+  for (const p of puppets) setStringFriction(p, friction); // calm the chains without floating the fall
 };
 // overlay raw physics line segments + per-chain stretch readout. NOTE: the checkbox id must NOT be
 // "dbg" — that collides with the MediaPipe wasm glue's global `dbg` and crashes init.

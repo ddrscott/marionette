@@ -89,6 +89,12 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
   natural fall) and exposed as the **drag slider**; angular damping (fixed `1.0`) settles spin
   without touching the fall. Zero drag = swings forever (the slider's bottom); raising it trades
   natural fall for faster settle. Gravity sets swing *frequency*, not its decay.
+- **String friction (chain settle):** the heavy chain segments otherwise wobble in long S-curves and
+  take ~20 s to rest. The **string-friction slider** (`DEFAULT_STRING_FRICTION = 8`, `setStringFriction`)
+  applies per-segment linear + angular damping — effectively "joint friction" — **decoupled from the
+  puppet parts**, so cranking it calms the chains (settle ~5–8 s) *without* re-floating the fall. Low =
+  floppy, high = stiff but the strings start to lag the control (sluggish). The drag slider now affects
+  only the puppet parts; this one only the string segments.
 
 ## Two players & handedness
 
