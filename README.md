@@ -1,12 +1,17 @@
-# Marionette Fighter — Spike 1
+# Marionette Fighter — Spike 2 (fingers → strings)
 
-Control a physics marionette with your hand via webcam. This repo is the **control/feel
-prototype** described in [`PRD.md`](./PRD.md): palm → control bar → visible strings → hanging
-ragdoll. It answers one question — *can a person puppeteer a hanging physics body with
-intent, or is it chaos?*
+Control a physics marionette with your hand via webcam. **Each fingertip is a string**: five
+numbered control points follow your fingers, and each pulls one body part. It answers *can a person
+puppeteer a hanging physics body with intent, or is it chaos?*
 
-> Spike-1 scope only. Combat, fingers→strings, netcode, floor, etc. are explicitly out of
-> scope (PRD §7). Don't add them here.
+> Evolved past spike-1: the rigid control bar (the "+") and its roll/pitch/yaw posing are **gone**,
+> replaced by per-finger string control (the PRD §7 spike-2 increment, pulled forward). A floor was
+> also added. Combat, netcode, and the puppet editor are still out of scope.
+
+**Finger → part map** (fingers 1..5 = thumb..pinky; fingertip landmarks 4/8/12/16/20):
+`1 thumb→left hand · 2 index→left foot · 3 middle→head · 4 ring→right foot · 5 pinky→right hand`.
+Move your whole hand to move the puppet; spread/curl fingers to work the limbs. Editable later via
+the puppet editor (the `FINGERS` array in `puppet.ts` is that seam).
 
 ## Run
 
@@ -28,92 +33,43 @@ npm run typecheck  # types only
 
 We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki/Marionette)):
 
-- **control** / **control bar** — the device the puppeteer holds (spike-1 called it a "perch").
-  We use a **horizontal control**: the cross with bars at right angles, the US style for human
-  figures. Rendered as a "+" in the screen plane (a 2.5D stylization).
-- **strings** — the threads. The British **9-string standard** is one to each knee, hand and
-  shoulder, two to the head, one to the lower back. Our four (head, two **hands**, lower back)
-  are a subset; the customization feature grows toward the full nine.
+- **control** — the device the puppeteer holds. Spike-1 used a rigid **horizontal control** (the
+  cross/"+"); spike-2 drops it: the puppeteer's **fingertips** are the control points directly.
+- **strings** — the threads. The British **9-string standard** runs one to each knee, hand and
+  shoulder, two to the head, one to the lower back. Our five (head, two hands, two feet) are a
+  subset; the puppet editor will let you re-bind fingers to any parts toward the full set.
 
 ## What it does
 
-- **Hand → control (direct 2-point drive):** MediaPipe Hand Landmarker (VIDEO mode, 1 hand, GPU)
-  feeds `controlDrive()` (in `control.ts`), which picks **two** hand landmarks to define the cross's
-  horizontal bar. The bar's **position = the midpoint** of those two points and its **roll = the
-  angle of the line between them** — both are now **MEASURED**, replacing the old single-point
-  (palm #9) translation and the synthesized roll proxy. The midpoint is smoothed by the position
-  One Euro filters and drives a kinematic Rapier **control bar**.
-  - **Full-screen reach, both axes (direct mapping).** The full detection range (stage ∈ [-0.5,0.5])
-    maps to the full view: horizontally to the live view width (`renderer.worldWidth`), vertically
-    to a band that bottoms out with the puppet resting on the floor and tops out at a high dangle.
-    The **swing range** slider is a `0–1` *fraction of full reach* (`1.0` = whole screen). Motion
-    is **not** artificially clamped — per the design intent, in-game "foul-line" rules (later) are
-    what constrain the player, not input limits. (Vertical `VERT_CENTER/SPAN` are in `main.ts`.)
-  - **Binding is data-driven** via the `DRIVE` config (`control.ts`) — the customization seam for a
-    future in-app point-picker:
-    - `mode: "extremes"` (**default**): each frame, pick the landmarks with the min and max
-      **stage-x** (mirrored, +x = screen-right) as the left/right bar ends. This auto-adapts to
-      hand orientation and maximizes the bar spread. The derived center/angle stay **continuous even
-      when the identity of the extreme landmark switches**, because min/max *position* is continuous
-      (we smooth the derived center/angle, not the landmark identity) — verified headlessly.
-    - `mode: "fixed"`: use the configured `left`/`right` indices. The documented fixed default is
-      **index-MCP(5) / pinky-MCP(17)** — the knuckle row: a stable, curl-proof span.
-  - The cross stays a **fixed-size rigid "+"** (`CONTROL_HALF_W/V`): the two points set only center +
-    roll; the string-anchor span is **not** scaled with hand spread (that would restretch the
-    string rest lengths and destabilize the rig).
-- **Hand orientation → control pitch / yaw:** `handPose()` (in `hands.ts`) reads two decoupled
-  proxies — **pitch** from the in-image **finger-drop** (mean fingertip y vs mean knuckle y,
-  normalized by hand scale — read like the hand's angle "from the side", no depth, so it's steady),
-  and **yaw** from the lateral z-gradient (index-MCP vs pinky-MCP). (Roll is no longer synthesized
-  here — it's the measured 2-point angle above.) Pitch is smoothed light; yaw rides the noisy z
-  channel and is smoothed hard. Pitch's neutral is grip-dependent, so `PITCH_NEUTRAL` zeroes the
-  resting reading. `poseControl()` then re-poses the bar:
-  - **Roll** is a real in-plane **Z rotation** of the kinematic body — one bar end (hand) rises,
-    the other drops, and the puppet **leans through the strings** (genuine physics).
-  - **Pitch & yaw are simulated orthographically, in-plane.** Rotating the control body *out* of
-    plane would yank the z-locked lower-back rope along its one forbidden axis and blow the solver
-    up (verified headlessly), so instead the control-local anchors are repositioned: `cos()`
-    **foreshortens** the bar (vertical member under pitch, horizontal under yaw), and a gentle
-    **nod / turn pull** (head anchor drops; the bar-end/hand anchors swap height) moves the puppet — foreshortening
-    on its own only slackens the max-length ropes, so it can't pull. Nothing ever leaves the
-    plane — every body (control included) stays at `z = 0`, so the Z-lock is bulletproof.
-- **Visible strings (PRD §4.1):** four strings run from the control bar — **head** (center, to the
-  torso top), the **two bar ends to the hands** (the arm tips, so raising/tilting the bar moves the
-  arms directly), and **lower back** (to the torso bottom).
-  **Every string is a CHAIN of 10 stiff segment bodies** linked by spherical joints (`control →
-  seg0 → … → seg9 → body`). Rigid links make it inextensible (no stretch/rubberband), but the hinges
-  let it **fold** — so it goes slack by draping/folding and never snap-bounces the way a single
-  max-length rope does at the slack→taut transition. Segments are light (`SEG_DENSITY`) and collide
-  with nothing, and fold above the puppet when it rests, so nothing buries it.
-  - **Head string** bears the weight: taut (`HEAD_SLACK ≈ 1.0`), hangs the puppet at the right
-    height, spans **51.7% of viewport** (`CENTER_STRING_LEN`, holding on resize). The bar ends run to
-    the **hands** (`HAND_SLACK`), the **lower back** to the torso bottom (`LOOSE_ROPE_SLACK`), each
-    with a touch of fold room. Raising/tilting the bar still lifts/poses the arms (~3 units).
-  - Each is drawn as a **smooth curve through its segment nodes** (quadratic midpoint smoothing), so
-    it reads as one continuous folding string, not visible links. Head drawn brighter/thicker.
-  - **Stiffness caveat:** a 10-link series chain of light segments needs many solver iterations
-    (`SOLVER_ITERATIONS = 48`) to stay rigid; even so it stretches ~1–2% under normal motion and up
-    to ~7% under an aggressive combined fast-move + tilt (vs ~0.2% for a single rope). The trade is
-    deliberate: chains *fold and never snap-bounce*, which a stiff rope can't. Watch it live with the
-    debug overlay.
-
-  The four strings pose the torso — position and tilt — so you can act with intent; arms and legs
-  ragdoll passively off the torso.
-- **Floor (PRD §7 deferral, reopened):** a static shelf (`FLOOR_TOP` in `puppet.ts`) sits near the
-  bottom of the view so a lowered control rests the puppet on-screen instead of dropping it away —
-  a *world* constraint, not an input clamp. Collision groups let the puppet parts hit the floor but
-  not each other. Because every string is a foldable chain, the **full vertical range** is usable:
-  drop the control and the chains fold/go limp and the puppet **crumples onto the floor** (verified:
-  rests cleanly, ~3 mm contact, no burying); raise it and the puppet lifts off.
-- **Hand overlay (PRD §4.2):** all 21 landmarks + `HAND_CONNECTIONS` drawn over the camera
-  preview, ringed in green with a crosshair that mirrors the control-bar crosshair on stage, making
-  the hand→control mapping legible at a glance. (The overlay's reference marker is a hint only; the
-  control is now driven by the **two-landmark bar**, not a single point — a point-picker overlay is
-  future work.)
-- **Instrumentation (PRD §4.3):** fps, hand-LOST indicator, a **swing-range slider** (`0–1` =
-  fraction of full-screen reach, default `1.0`), gravity slider, a **tilt-range slider** (`0–1` =
-  fraction of full roll/pitch/yaw, default `1.0`; `0` = flat) with a live **roll/pitch/yaw degree
-  readout**, a **drag slider** (linear damping / air resistance; low = falls naturally, high =
+- **Fingers → control points:** MediaPipe Hand Landmarker (VIDEO mode, 1 hand, GPU) gives 21
+  landmarks. Each of the five fingertips (`FINGERS` in `puppet.ts`: landmarks 4/8/12/16/20) is mapped
+  through stage space (`stageX/stageY` in `control.ts` — mirrored x, y-up) to a **kinematic control
+  point**, smoothed by its own One Euro filter. The full detection range maps to the full view, both
+  axes, scaled by the **swing range** slider (`0–1`). Moving your whole hand moves all five together;
+  spreading/curling a finger moves that control point alone.
+- **One string per finger:** five 10-link **chains**, one from each finger control point to its body
+  part (`FINGERS`): `1 thumb→lArm`, `2 index→lLeg`, `3 middle→torso(head)`, `4 ring→rLeg`,
+  `5 pinky→rArm`. The torso hangs from the head (middle-finger) string; arms and legs hang off the
+  torso (spherical joints) **and** are pulled by their own finger strings — so each limb forms a
+  closed loop the foldable chains accommodate. Rendered as smooth curves colour-coded per finger.
+  - **Chains, not ropes:** rigid spherical-joint links make each string inextensible (no
+    rubberband), but the hinges let it **fold** — it goes slack by draping and never snap-bounces.
+    Length = the straight-line span at the rest pose (`STRING_SLACK = 1.0`), so strings are straight
+    when the hand is level. The head string spans **51.7% of viewport** (`CENTER_STRING_LEN`).
+  - **Stiffness caveat:** a 10-link series chain of light links needs many solver passes
+    (`SOLVER_ITERATIONS = 48`) to stay rigid; even so it stretches ~1–2% under normal motion (more
+    under an aggressive yank, since the control is One-Euro-smoothed and never teleports). Watch it
+    live with the debug overlay.
+- **Floor:** a static shelf (`FLOOR_TOP`) near the bottom so a lowered hand rests the puppet
+  on-screen instead of dropping it away. Collision groups: puppet parts hit the floor but not each
+  other; string segments collide with nothing. Lower your fingers and the puppet **crumples onto
+  the floor** (rests cleanly, ~3 mm contact, no burying); raise them and it lifts off.
+- **Hand overlay:** all 21 landmarks + `HAND_CONNECTIONS` over the camera preview, with the **five
+  driving fingertips ringed in their finger colours and numbered 1–5**, matching the on-stage
+  control points — so the finger→part mapping reads at a glance.
+- **Instrumentation:** fps, hand-LOST indicator, a **swing-range slider** (`0–1` =
+  fraction of full-screen reach, default `1.0`), gravity slider,
+  a **drag slider** (linear damping / air resistance; low = falls naturally, high =
   floats but settles fast), a **weight slider** (puppet mass multiplier; runtime `setPuppetWeight` rescales each part's
   density — heavier parts keep more tension on the chains, though they also lag more under fast
   yanks), a string-length-% readout, and a **debug: physics lines** checkbox — overlays Rapier's raw
@@ -131,84 +87,48 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
 
 | File | Responsibility |
 |---|---|
-| `src/main.ts` | Loop: physics steps every frame; `detectForVideo` only on new camera frames (§5). Controls, control-bar position + roll (from the 2-point drive) + pitch/yaw mapping, the control-path One Euro filters and their named latency-tuning constants. |
-| `src/control.ts` | **Dependency-free** direct-drive geometry: the `DRIVE` binding config, `controlDrive()` (the two stage-space bar ends), `controlCenter()` (midpoint), `rollAngleOf()` (bar angle). No MediaPipe import, so the measured position/roll math is unit-testable headlessly in Node. |
-| `src/puppet.ts` | Rapier rig: control bar, four 10-segment chain strings, torso + limbs, floor. The `ATTACH` array, world-layout constants, and `poseControl()` (roll body rotation + in-plane pitch/yaw anchor posing) live here. |
-| `src/hands.ts` | MediaPipe init (CDN WASM + model), `HAND_CONNECTIONS`, and `handPose()` (pitch/yaw proxies; roll is now measured in `control.ts`). |
-| `src/draw.ts` | 2D-canvas renderer (adaptive scale) + hand-landmark overlay. |
+| `src/main.ts` | Loop: physics steps every frame; `detectForVideo` only on new camera frames. Maps each fingertip → its control-point world position (per-finger One Euro filter), drives the 5 kinematic controls, and owns the sliders. |
+| `src/control.ts` | **Dependency-free** `stageX`/`stageY` (landmark → mirrored, y-up stage space). No MediaPipe import. |
+| `src/puppet.ts` | Rapier rig: 5 finger control points + 5 chain strings, torso + limbs, floor. The `FINGERS` binding array and all rig constants live here. |
+| `src/hands.ts` | MediaPipe init (CDN WASM + model) and `HAND_CONNECTIONS`. |
+| `src/draw.ts` | 2D-canvas renderer (adaptive scale, finger-coloured strings + control points) + hand-landmark overlay + physics-debug overlay. |
 | `src/oneEuro.ts` | One Euro filter, ported verbatim from the validated dot test. |
 | `puppet-spike-1.html` | Original single-file spike, kept for reference. |
 
 **2.5D plane lock:** every dynamic body uses `enabledTranslations(true,true,false)` +
-`enabledRotations(false,false,true)`. Colliders share one collision group so puppet/string
-parts never self-collide (avoids joint jitter). The control bar is kinematic and only ever
-**rolls about Z** — pitch/yaw are faked in-plane (see above), so it too stays in the plane.
-Verified headlessly: ~10 s of combined translation **and** roll/pitch/yaw sweeping →
-`max |z| == 0` on every dynamic body, no NaN, nothing explodes, and each of the three rotations
-demonstrably moves the torso.
+`enabledRotations(false,false,true)`, so it stays on the z=0 plane. The 5 control points are
+kinematic (driven directly). Verified headlessly: spawn settles, a finger-spread + hand-sweep run
+keeps `max |z| == 0` with no NaN/explosion, and the puppet rests cleanly on the floor.
 
 ## Tuning knobs (in `src/puppet.ts`)
 
-- `ATTACH` — the four strings as data rows (name, `target` body, control-bar anchor, body anchor,
-  `slack`). This is the seam for the future "customize the rig" feature: edit/add rows toward the
-  British 9-string set (add knees). The two bar ends `target` the arms (`lArm`/`rArm`) = the hands;
-  head and lower back `target` the torso. Each string is a 10-link chain of length `restDist*slack`.
-- `SEG_COUNT` (`10`) / `SEG_RAD` / `SEG_DENSITY` — segments per chain, and how thin/light the links
-  are. More segments fold finer but stretch more under load; lighter links keep the chain from
-  overpowering the puppet but also stretch more (mass ratio).
-- `SOLVER_ITERATIONS` (`48`) — a 10-link series chain of light links needs many passes to stay
-  rigid. 48 holds ~1–2% stretch at normal speed (~7% under an aggressive combined move+tilt); it
-  plateaus past ~48 (the residual is series-compliance, not iteration count).
-- `HEAD_SLACK` (`1.0`, weight-bearer) / `HAND_SLACK` (`1.0`, bar-ends→hands, straight at rest) /
-  `LOOSE_ROPE_SLACK` (`~1.05`, lower back) — per-string chain length = `restDist * slack`. `1.0` =
-  length is exactly the straight-line bar-end→body distance, so the string is **straight/taut** at
-  the level rest pose (the hand strings ≈ main string + the hand's drop below the head anchor);
-  `>1` adds fold room so it drapes.
-- `CONTROL_HALF_W` / `CONTROL_HALF_V` — how wide the control bar spreads the hand strings
-  and how far its cross bar reaches for head/lower-back.
-- `WORLD_VIEW_HEIGHT`, `CONTROL_BASE_Y`, `CENTER_STRING_LEN`, `FLOOR_TOP` — rig geometry, head-rope length, floor height.
-- `NOD_GAIN` / `TURN_GAIN` (`src/puppet.ts`) — how hard pitch nods the head string and yaw swings
-  the bar ends (hands). Keep them gentle (PRD §2 wants a deliberate tempo).
+- `FINGERS` — the finger→part bindings as data rows (`name`, `landmark`, `target` body, `bodyAnchor`).
+  This is the seam for the puppet editor: re-point any finger at any part (`torso`/`lArm`/`rArm`/
+  `lLeg`/`rLeg`). Each row becomes one kinematic control point + a chain string.
+- `SEG_COUNT` (`10`) / `SEG_RAD` / `SEG_DENSITY` — links per string, and how thin/light they are.
+  More links fold finer but stretch more; lighter links don't overpower the puppet but stretch more
+  (mass ratio).
+- `SOLVER_ITERATIONS` (`48`) — a 10-link series chain of light links needs many passes to stay rigid
+  (and the 5-string rig adds closed loops). 48 holds ~1–2% stretch at normal speed; it plateaus past
+  ~48 (residual is series-compliance, not iteration count).
+- `STRING_SLACK` (`1.0`) — chain length = `restDist * slack`. `1.0` = exactly the straight-line span,
+  so strings are straight at the rest pose; `>1` adds fold room.
+- `DEFAULT_LINEAR_DAMPING` (`0.4`, the **drag** slider) / `DEFAULT_ANGULAR_DAMPING` (`1.0`, fixed) —
+  linear damping is air resistance and caps fall speed (`terminal ≈ gravity/linDamp`); kept low so
+  the puppet falls naturally. Angular settles spin without touching the fall.
+- `DEFAULT_PUPPET_WEIGHT` (`4`, the **weight** slider) — part mass multiplier (`setPuppetWeight`).
+- `WORLD_VIEW_HEIGHT`, `CONTROL_BASE_Y`, `CENTER_STRING_LEN`, `FLOOR_TOP` — rig geometry / floor height.
 
-Direct-drive config (in `src/control.ts`):
+Control-path tunables in `src/main.ts`:
 
-- `DRIVE` — the data-driven binding: `{ mode, left, right }`. `mode: "extremes"` (default) drives
-  off the furthest-left/right landmarks each frame; `mode: "fixed"` uses the `left`/`right` indices
-  (default `5`/`17` = index-MCP / pinky-MCP, the knuckle row). This is the seam for a future in-app
-  point-picker; no picker UI yet.
-
-Rotation + control-path tunables in `src/main.ts`:
-
-- `ROLL_MAX` / `PITCH_MAX` / `YAW_MAX` — per-axis angle caps. Roll is now a **direct 1:1
-  measurement** of the 2-point bar angle, so it earns the widest cap (**±35°**, up from ±25°); still
-  clamped so a big hand tilt can't over-rotate the cross into instability. Pitch/yaw stay at ±15°.
-- **Latency / smoothing constants (control path):** `POS_MIN_CUTOFF` / `POS_BETA` and
-  `ROLL_MIN_CUTOFF` / `ROLL_BETA`. The raw landmark overlay has **no perceptible lag**, so detection
-  is fast and low-jitter — the delay was *our* conservative One Euro cutoff (which sheds the most lag
-  exactly at the slow marionette tempo). Because position + roll are now **measured** with a **single
-  smoothing stage each** (the synthesized-roll pass is gone), the control needs far less smoothing:
-  these `minCutoff`s are raised to **`5.0`** (well above the §2 position default of `1.5`) so the
-  cross tracks the hand nearly as immediately as the raw overlay, still jitter-free. Higher =
-  snappier; lower = steadier — dial by feel. (The One Euro **filter itself is unchanged**; only the
-  control-path cutoffs were reopened, with the user's evidence.)
-- `PITCH_NEUTRAL` / `PITCH_DEADZONE` / `PITCH_GAIN` — map the in-image finger-drop to pitch.
-  `PITCH_NEUTRAL` is the resting drop ratio treated as 0° (hold a relaxed hand, read the r/p/y
-  readout, set it to zero out); `PITCH_GAIN` scales drop→radians; the dead-zone ignores wobble.
-- `ZGRAD_GAIN` / `ZGRAD_DEADZONE` — map the noisy MediaPipe z-gradient to **yaw**, with a small
-  dead-zone so a flat palm reads as neutral.
-- The control-path One Euro filters: `fpx/fpy` (position midpoint, now at `POS_MIN_CUTOFF`),
-  `frollSin/frollCos` (roll, smoothed as sin/cos components to dodge angle-wrap, at
-  `ROLL_MIN_CUTOFF`), `fpitch`, and `fyaw` (z is the noisiest channel, so yaw is smoothed hardest).
-- The on-screen **tilt range** slider is a master multiplier over all three angles (`0–1`, live).
-- **Position reach:** `swingRange` (`0–1`) scales full-screen reach on both axes. `VERT_CENTER` /
-  `VERT_SPAN` set the cross's vertical band (default `6 ± 6` → full `[0, 12]`): hand down drops the
-  cross to the bottom (puppet crumples on the floor), hand up dangles it high. `FLOOR_TOP`
-  (`puppet.ts`) is the floor height.
+- `swingRange` (the **swing range** slider, `0–1`) — scales each fingertip's mapped position; `1.0`
+  = full screen. `VERT_CENTER` / `VERT_SPAN` set the vertical band (full `[0,12]`).
+- `POS_MIN_CUTOFF` (`5.0`) / `POS_BETA` — per-finger One Euro smoothing. The raw landmark overlay has
+  no perceptible lag, so little smoothing is needed; higher = snappier, lower = steadier.
 
 ## Notes for the next pass
 
-- **Render:** still 2D canvas (PRD §4.4 permits it; fastest for a feel test). Three.js
-  migration is deferred to whenever spike-2 needs it — `three` is intentionally not a dep yet.
+- **Puppet editor:** the `FINGERS` array is the data seam — an in-app binding picker is the next step.
+- **Render:** still 2D canvas (PRD §4.4 permits it). Three.js migration deferred; `three` is not a dep.
 - The Rapier API was version-checked against the installed `@dimforge/rapier3d-compat@0.19.3`.
-- The verdict on whether this is "legible enough to act with intent" is **Scott's hand
-  judgment** (PRD §6) — it gates whether spike-2 (fingers → individual string motors) proceeds.
+- The verdict on "legible enough to act with intent" is **Scott's hand judgment** (PRD §6).

@@ -1,6 +1,10 @@
 import type RAPIER_NS from "@dimforge/rapier3d-compat";
-import { WORLD_VIEW_HEIGHT, FLOOR_TOP, type Rig, type Vec2 } from "./puppet.ts";
+import { WORLD_VIEW_HEIGHT, FLOOR_TOP, FINGERS, type Rig, type Vec2 } from "./puppet.ts";
 import { HAND_CONNECTIONS, type Landmark } from "./hands.ts";
+
+// One distinct colour per finger/string (1 thumb .. 5 pinky), shared by the strings, the control-point
+// markers, and the camera-overlay fingertip dots so the finger→part mapping reads at a glance.
+const FINGER_COLORS = ["#ff6b6b", "#ffd93d", "#6bcb77", "#4d96ff", "#c780ff"];
 
 // Bodies rotate only about Z, so the world rotation is a single angle.
 const zAngle = (q: RAPIER_NS.Rotation): number => 2 * Math.atan2(q.z, q.w);
@@ -27,13 +31,10 @@ export class Renderer {
   resize(): void {
     this.canvas.width = this.canvas.clientWidth;
     this.canvas.height = this.canvas.clientHeight;
-    // A fixed world height fills the viewport, so any world-unit length is a
-    // constant fraction of canvas height regardless of resolution (§4.1).
     this.scale = this.canvas.height / WORLD_VIEW_HEIGHT;
   }
 
-  // Visible world width (units): WORLD_VIEW_HEIGHT scaled by the canvas aspect. The control's
-  // horizontal reach maps the full detection range (stage-x ∈ [-0.5,0.5]) onto this width.
+  // Visible world width (units): a fingertip's full detection range (stage-x ∈ [-0.5,0.5]) maps onto it.
   get worldWidth(): number { return this.canvas.width / this.scale; }
 
   private sx(x: number): number { return this.canvas.width / 2 + x * this.scale; }
@@ -41,9 +42,8 @@ export class Renderer {
   private lineTo(p: Vec2): void { this.ctx.lineTo(this.sx(p.x), this.sy(p.y)); }
   private moveTo(p: Vec2): void { this.ctx.moveTo(this.sx(p.x), this.sy(p.y)); }
 
-  // Stroke a smooth curve through world-space points (quadratics with midpoints as on-curve joins,
-  // original points as controls). Endpoints are hit exactly; interior kinks are rounded — so a
-  // chain's segment nodes read as one continuous, folding string instead of visible links.
+  // Stroke a smooth curve through world-space points so a chain's segment nodes read as one
+  // continuous, folding string instead of visible links.
   private smoothPath(pts: Vec2[]): void {
     const { ctx } = this;
     this.moveTo(pts[0]);
@@ -60,7 +60,7 @@ export class Renderer {
     const { ctx } = this;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-    // floor: a ground band the puppet can rest on when the control is lowered.
+    // floor band
     const floorPx = this.sy(FLOOR_TOP);
     ctx.fillStyle = "#121216";
     ctx.fillRect(0, floorPx, this.canvas.width, this.canvas.height - floorPx);
@@ -70,52 +70,30 @@ export class Renderer {
     ctx.moveTo(0, floorPx); ctx.lineTo(this.canvas.width, floorPx);
     ctx.stroke();
 
-    // The control body carries only ROLL (in-plane Z); pitch/yaw already live in the posed
-    // anchor positions (rig.posedAnchors / rig.barTip). Transform a posed control-local point to
-    // world by applying the body's roll then its translation — this lands on exactly the anchor
-    // points the solver uses, so the strings always stay attached to the foreshortened "+".
-    const ct = rig.control.translation();
-    const cr = rig.control.rotation();
-    const cz = 2 * Math.atan2(cr.z, cr.w); // roll angle
-    const cc = Math.cos(cz), cs = Math.sin(cz);
-    const controlPt = (a: Vec2): Vec2 => ({
-      x: ct.x + a.x * cc - a.y * cs,
-      y: ct.y + a.x * cs + a.y * cc,
-    });
-
-    // (1) control-bar crosshair — the stage half of the hand->control visual link.
-    ctx.strokeStyle = "rgba(57,217,138,0.16)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(this.sx(ct.x), 0); ctx.lineTo(this.sx(ct.x), this.canvas.height);
-    ctx.moveTo(0, this.sy(ct.y)); ctx.lineTo(this.canvas.width, this.sy(ct.y));
-    ctx.stroke();
-
-    // (2) strings.
+    // (1) strings — each a smooth curve from its finger control point through the chain to the part.
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     rig.strings.forEach((s, i) => {
-      // smooth curve through the chain: control anchor (posed) -> each segment center -> body anchor.
-      // The links fold, so this curve drapes and goes slack without any stretch. Head = weight-bearer,
-      // drawn brighter/thicker than the limb strings.
-      const pts: Vec2[] = [controlPt(rig.posedAnchors[i])];
+      const top = s.control.translation();
+      const pts: Vec2[] = [{ x: top.x, y: top.y }];
       for (const seg of s.segs) { const c = seg.translation(); pts.push({ x: c.x, y: c.y }); }
       const end = localToWorld(s.body, s.bodyAnchor);
       pts.push(end);
-      const head = s.name === "head";
-      ctx.strokeStyle = head ? "#c9c9d2" : "rgba(201,201,210,0.7)";
-      ctx.lineWidth = head ? 2 : 1.5;
+      ctx.strokeStyle = FINGER_COLORS[i % FINGER_COLORS.length];
+      ctx.lineWidth = 1.6;
+      ctx.globalAlpha = 0.85;
       ctx.beginPath();
       this.smoothPath(pts);
       ctx.stroke();
-      // attach dot on the puppet — marks the control point (and the customization handle).
-      ctx.fillStyle = "#39d98a";
+      ctx.globalAlpha = 1;
+      // attach dot on the puppet
+      ctx.fillStyle = FINGER_COLORS[i % FINGER_COLORS.length];
       ctx.beginPath();
       ctx.arc(this.sx(end.x), this.sy(end.y), 3, 0, Math.PI * 2);
       ctx.fill();
     });
 
-    // (3) puppet capsules.
+    // (2) puppet capsules.
     for (const part of rig.parts) {
       const e1 = localToWorld(part.body, { x: 0, y: part.half });
       const e2 = localToWorld(part.body, { x: 0, y: -part.half });
@@ -127,36 +105,34 @@ export class Renderer {
       ctx.stroke();
     }
 
-    // (4) the horizontal control bar ("+") on top — drawn from the SAME posed anchors as the
-    // strings, so it foreshortens with pitch/yaw and the strings stay welded to the bar tips.
-    // strings index order (see ATTACH): 0 head, 1 lHand, 2 rHand, 3 lowerBack.
-    ctx.strokeStyle = "#caa46a";
-    ctx.lineWidth = 6;
-    ctx.beginPath();
-    this.moveTo(controlPt(rig.posedAnchors[1])); this.lineTo(controlPt(rig.posedAnchors[2])); // horizontal
-    this.moveTo(controlPt(rig.barTip)); this.lineTo(controlPt(rig.posedAnchors[3]));           // vertical
-    ctx.stroke();
-    // bright dot at the held center (where the hand maps to).
-    ctx.fillStyle = "#fff";
-    ctx.beginPath();
-    ctx.arc(this.sx(ct.x), this.sy(ct.y), 4, 0, Math.PI * 2);
-    ctx.fill();
+    // (3) finger control points — coloured discs numbered 1..5 (the puppeteer's fingertips on stage).
+    ctx.font = "bold 11px ui-monospace, monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    rig.controls.forEach((c, i) => {
+      const t = c.translation();
+      const px = this.sx(t.x), py = this.sy(t.y);
+      ctx.fillStyle = FINGER_COLORS[i % FINGER_COLORS.length];
+      ctx.beginPath();
+      ctx.arc(px, py, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#0d0d0f";
+      ctx.fillText(String(i + 1), px, py + 0.5);
+    });
+    ctx.textAlign = "start";
+    ctx.textBaseline = "alphabetic";
   }
 
-  // Debug overlay: the RAW line segments straight from the physics engine (collider outlines +
-  // impulse-joint anchors) plus, for each rope, its TRUE anchor-to-anchor length vs its maxLength —
-  // so you can read exactly how much (if at all) a string stretches past its cap. A rope drawn red
-  // and a +stretch% mean the solver is letting it exceed maxLength (elastic); green = at/under cap.
+  // Debug overlay: raw physics segments (every chain link + joint) + each chain's measured summed
+  // length vs nominalLen (stretch%). For a rigid chain stretch stays ~0 however it folds.
   drawDebug(rig: Rig): void {
     const { ctx } = this;
 
-    // (a) Rapier's own debug geometry: flat vertex buffer (xyz per point, 2 points per line) with
-    // an RGBA color per vertex. Project x,y (z is ~0 in our locked plane) and stroke each segment.
     const buf = rig.world.debugRender();
     const v = buf.vertices, col = buf.colors;
     ctx.lineWidth = 1;
     for (let i = 0; i + 5 < v.length; i += 6) {
-      const ci = (i / 3) * 4; // color of the segment's first vertex
+      const ci = (i / 3) * 4;
       const r = Math.round(col[ci] * 255), g = Math.round(col[ci + 1] * 255), b = Math.round(col[ci + 2] * 255);
       ctx.strokeStyle = `rgba(${r},${g},${b},${col[ci + 3] * 0.7})`;
       ctx.beginPath();
@@ -165,22 +141,15 @@ export class Renderer {
       ctx.stroke();
     }
 
-    // (b) per-chain elasticity readout. A chain's TRUE length is the sum of its node-to-node links
-    // (control anchor -> each segment center -> body anchor). Rigid links keep that ≈ nominalLen no
-    // matter how it folds, so any positive stretch% = the spherical joints actually giving (elastic).
-    const ct = rig.control.translation();
-    const cr = rig.control.rotation();
-    const cz = 2 * Math.atan2(cr.z, cr.w), cc = Math.cos(cz), cs = Math.sin(cz);
-    const a1 = (a: Vec2): Vec2 => ({ x: ct.x + a.x * cc - a.y * cs, y: ct.y + a.x * cs + a.y * cc });
-
     ctx.font = "11px ui-monospace, monospace";
     ctx.textBaseline = "top";
     let ty = 8;
     ctx.fillStyle = "#39d98a";
     ctx.fillText("physics chains — len / nominal  (stretch%)", 8, ty); ty += 15;
     let maxStretch = -Infinity;
-    rig.strings.forEach((s, i) => {
-      const nodes: Vec2[] = [a1(rig.posedAnchors[i])];
+    rig.strings.forEach((s) => {
+      const top = s.control.translation();
+      const nodes: Vec2[] = [{ x: top.x, y: top.y }];
       for (const seg of s.segs) { const c = seg.translation(); nodes.push({ x: c.x, y: c.y }); }
       nodes.push(localToWorld(s.body, s.bodyAnchor));
       let len = 0;
@@ -188,11 +157,12 @@ export class Renderer {
       const stretch = ((len - s.nominalLen) / s.nominalLen) * 100;
       maxStretch = Math.max(maxStretch, stretch);
       ctx.fillStyle = stretch > 0.3 ? "#ff5c5c" : "#9a9aa2";
-      ctx.fillText(`${s.name.padEnd(10)} ${len.toFixed(3)} / ${s.nominalLen.toFixed(2)}  ${stretch >= 0 ? "+" : ""}${stretch.toFixed(2)}%`, 8, ty);
+      ctx.fillText(`${s.name.padEnd(13)} ${len.toFixed(2)} / ${s.nominalLen.toFixed(2)}  ${stretch >= 0 ? "+" : ""}${stretch.toFixed(2)}%`, 8, ty);
       ty += 13;
     });
     ctx.fillStyle = maxStretch > 0.3 ? "#ff5c5c" : "#39d98a";
     ctx.fillText(`max stretch: ${maxStretch >= 0 ? "+" : ""}${maxStretch.toFixed(2)}%`, 8, ty + 2);
+    ctx.textBaseline = "alphabetic";
   }
 }
 
@@ -220,29 +190,26 @@ export function drawHand(
     ctx.stroke();
   }
 
-  // all 21 landmarks
-  ctx.fillStyle = "#e8e8e8";
-  for (let i = 0; i < landmarks.length; i++) {
-    if (i === 9) continue;
-    const lm = landmarks[i];
+  // all 21 landmarks (dim)
+  ctx.fillStyle = "#9a9aa2";
+  for (const lm of landmarks) {
     ctx.beginPath();
-    ctx.arc(X(lm), Y(lm), 2.5, 0, Math.PI * 2);
+    ctx.arc(X(lm), Y(lm), 2, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  // control point #9 (palm) — ringed + crosshair, the cam half of the control link.
-  const ctrl = landmarks[9];
-  const cx = X(ctrl), cy = Y(ctrl);
-  ctx.strokeStyle = "rgba(57,217,138,0.45)";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(cx, 0); ctx.lineTo(cx, h);
-  ctx.moveTo(0, cy); ctx.lineTo(w, cy);
-  ctx.stroke();
-
-  ctx.fillStyle = "#39d98a";
-  ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = "#39d98a";
-  ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.arc(cx, cy, 8, 0, Math.PI * 2); ctx.stroke();
+  // the 5 control fingertips — ringed in their finger colour with the finger number.
+  ctx.font = "bold 10px ui-monospace, monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  FINGERS.forEach((f, i) => {
+    const lm = landmarks[f.landmark];
+    const cx = X(lm), cy = Y(lm);
+    ctx.fillStyle = FINGER_COLORS[i % FINGER_COLORS.length];
+    ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#0d0d0f";
+    ctx.fillText(String(i + 1), cx, cy + 0.5);
+  });
+  ctx.textAlign = "start";
+  ctx.textBaseline = "alphabetic";
 }

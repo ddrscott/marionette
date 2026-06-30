@@ -1,63 +1,46 @@
 import type RAPIER_NS from "@dimforge/rapier3d-compat";
 
 // ---- terminology (per https://en.wikipedia.org/wiki/Marionette) ----
-// "control" / "control bar": the device the puppeteer holds. We use a *horizontal
-//   control* — the cross with bars at right angles, the US style for human figures.
-//   (We render its "+" in the screen plane as a 2.5D stylization so both string
-//   spreads stay visible side-on.)
-// "strings": the threads. The British 9-string standard runs one to each knee, hand
-//   and shoulder, two to the head, and one to the lower back. Our four (head, two
-//   shoulders, lower back) are a subset of that — room to grow into hands + knees.
+// Spike-2 control: we drop the rigid "control bar" (crossbeam) and instead give each FINGER its own
+// string to a body part — the puppeteer's fingertips ARE the control points. (Fingers → individual
+// strings is the PRD §7 spike-2 increment, pulled forward.)
 
-// ---- world layout (units; the renderer shows WORLD_VIEW_HEIGHT units tall) ----
-// Because the renderer maps a *fixed* world height to whatever pixel height the
-// canvas has, a string measured in world units is a constant fraction of the
-// viewport on any resize (see draw.ts / §4.1 "compute from viewport").
+// ---- world layout (the renderer shows WORLD_VIEW_HEIGHT units tall) ----
 export const WORLD_VIEW_HEIGHT = 12;
-export const CONTROL_BASE_Y = 11; // the control bar rides near the top of the view
+export const CONTROL_BASE_Y = 11; // default height of the finger control points (top of the view)
 
-// Horizontal-control geometry, in control-local units.
-export const CONTROL_HALF_W = 1.0; // central bar: half-length (spreads the shoulder strings)
-export const CONTROL_HALF_V = 0.5; // cross bar: half-length (head tip up, lower-back tip down)
-
-// Damping. LINEAR damping is velocity drag — it's also "air resistance": too much and the puppet
-// can't fall faster than terminal velocity (≈ gravity/linDamp), so it FLOATS down. At gravity 9.8 a
-// natural screen-height fall reaches ~15 u/s, so linDamp must stay ≲0.6 to avoid capping the fall.
-// We keep it low (0.4 — falls naturally, still bleeds swings over a few seconds) and let the slider
-// raise it if the residual swing is annoying. ANGULAR damping settles spin and doesn't touch the
-// fall, so it stays higher. (Zero damping = swings forever; that's the slider's bottom end.)
+// Damping. LINEAR damping is velocity drag = air resistance: too much caps fall speed at terminal
+// velocity (≈ gravity/linDamp) and the puppet FLOATS. Kept low (0.4 → natural fall); the slider
+// raises it. ANGULAR damping settles spin without touching the fall, so it stays higher.
 export const DEFAULT_LINEAR_DAMPING = 0.4;
 export const DEFAULT_ANGULAR_DAMPING = 1.0;
 
-export const CENTER_STRING_LEN = 6.2; // head chain length -> 51.7% of a 12u view (> 50% required)
+export const CENTER_STRING_LEN = 6.2; // head string length -> 51.7% of a 12u view (> 50% required)
 
-// Strings are CHAINS of stiff segments (rigid spherical-joint links): inextensible like a real
-// string — so they don't stretch/rubberband — but free to FOLD at every hinge, so they go slack by
-// folding and never snap-bounce the way a single max-length rope does. `slack` makes the chain a
-// hair longer than the straight span so it can drape/fold rather than spawn dead-taut.
-const SEG_COUNT = 10;    // segments per string
-const SEG_RAD = 0.04;    // thin
+// Strings are CHAINS of stiff segment links (spherical joints): inextensible (no rubberband) but
+// free to FOLD at every hinge, so they drape/go-slack and never snap-bounce. `STRING_SLACK` 1.0 =>
+// chain length is exactly the straight-line span, so the string is straight/taut at the rest pose.
+const SEG_COUNT = 10;
+const SEG_RAD = 0.04;
 const SEG_DENSITY = 0.3; // light, so a chain can't overpower the puppet it hangs
-const HEAD_SLACK = 1.0;  // weight-bearer: taut
-const HAND_SLACK = 1.0;  // side strings: length = straight-line bar-end->hand, so they're STRAIGHT
-                         // (taut) at the level rest pose (= main string + the hand's drop below the
-                         // head anchor). slack > 1 would let them sag.
-const LOOSE_ROPE_SLACK = 1.05;
+const STRING_SLACK = 1.0;
 
-// Collision filtering (32-bit: high 16 = membership, low 16 = mask of groups it collides with).
-// Puppet parts collide with the FLOOR but not each other (no self-jitter); the floor collides only
-// with the puppet parts; string segments collide with NOTHING (visual-only, never catch on things).
+// Collision filtering (high 16 = membership, low 16 = mask of groups it collides with).
 const PUPPET_GROUP = 0x00010002; // member group 0, collides with group 1 (floor)
 const STRING_GROUP = 0x00010000; // member group 0, collides with nothing
 const FLOOR_GROUP  = 0x00020001; // member group 1, collides with group 0 (puppet)
 
-// Floor geometry (world units). Its top sits just above the bottom of the 12u view, so a lowered
-// control rests the puppet on-screen instead of letting it fall away (the world constrains motion,
-// the input isn't artificially clamped).
+// Floor: static shelf near the bottom so a lowered control rests the puppet on-screen.
 export const FLOOR_TOP = 0.8;
 const FLOOR_HALF_H = 0.5;
 const FLOOR_HALF_W = 50; // wide enough to span any viewport aspect
 const FLOOR_HALF_D = 1;  // z-thickness so the z-locked puppet (z=0) always overlaps the floor
+
+// Puppet weight multiplier (heavier parts keep more tension on the strings). Live via setPuppetWeight.
+export const DEFAULT_PUPPET_WEIGHT = 4;
+
+// A 5-string rig with closed loops needs many solver passes to keep the chains rigid; cheap enough.
+const SOLVER_ITERATIONS = 48;
 
 export interface Vec2 { x: number; y: number; }
 export interface Capsule {
@@ -65,90 +48,43 @@ export interface Capsule {
   collider: RAPIER_NS.Collider; baseDensity: number; // for the live weight slider (setPuppetWeight)
 }
 
-// Puppet weight multiplier. A heavier puppet hangs with more weight, so gravity keeps the chains
-// under more tension (tauter, less floppy). Live via the weight slider / setPuppetWeight.
-export const DEFAULT_PUPPET_WEIGHT = 4;
+export type TargetName = "torso" | "lArm" | "rArm" | "lLeg" | "rLeg";
 
-// A puppet string: a CHAIN of stiff segment bodies linked by spherical joints, from a point on the
-// control to a point on a body. Inextensible (rigid links) but folds at every hinge.
+// One string: a chain from a finger control point (its top) to a body part.
 export interface PuppetString {
   name: string;
-  controlAnchor: Vec2;               // control-local (the NEUTRAL anchor; poseControl foreshortens it)
-  body: RAPIER_NS.RigidBody;         // body the chain ends on
-  bodyAnchor: Vec2;                  // body-local
-  controlJoint: RAPIER_NS.ImpulseJoint; // the control->seg0 joint; its anchor1 is updated for pitch/yaw
-  segs: RAPIER_NS.RigidBody[];       // the chain links, control-side -> body-side (drawn as the string)
-  nominalLen: number;                // total chain length (sum of links) — its inextensible limit
+  control: RAPIER_NS.RigidBody; // the kinematic finger control point — the string's top
+  body: RAPIER_NS.RigidBody;    // the part the string ends on
+  bodyAnchor: Vec2;             // body-local
+  segs: RAPIER_NS.RigidBody[];  // the chain links, control-side -> body-side
+  nominalLen: number;           // total chain length (its inextensible limit)
 }
 
-// The four attach points. Spreading them across the control bar — instead of pinning
-// everything to one spot — is what makes this read as a marionette, and these rows are
-// exactly what a future "customize the rig" feature would edit (toward the 9-string set).
-// `target`: which body the string ends on; `slack`: maxLength = restDist * slack. The head bears
-// the weight (near-taut) but is STILL a rope, so it goes slack when the puppet rests; the others
-// hang looser. The two bar ends run to the HANDS (arm tips), so raising/tilting the bar moves the
-// arms directly (classic marionette hand control).
-type TargetName = "torso" | "lArm" | "rArm";
-interface AttachSpec { name: string; target: TargetName; controlAnchor: Vec2; bodyAnchor: Vec2; slack: number }
-const ATTACH: AttachSpec[] = [
-  { name: "head",      target: "torso", controlAnchor: { x: 0, y: 0 },               bodyAnchor: { x: 0, y: 0.5 },  slack: HEAD_SLACK },
-  { name: "lHand",     target: "lArm",  controlAnchor: { x: -CONTROL_HALF_W, y: 0 }, bodyAnchor: { x: 0, y: -0.4 }, slack: HAND_SLACK },
-  { name: "rHand",     target: "rArm",  controlAnchor: { x:  CONTROL_HALF_W, y: 0 }, bodyAnchor: { x: 0, y: -0.4 }, slack: HAND_SLACK },
-  { name: "lowerBack", target: "torso", controlAnchor: { x: 0, y: -CONTROL_HALF_V }, bodyAnchor: { x: 0, y: -0.5 }, slack: LOOSE_ROPE_SLACK },
+// Finger → part bindings. Fingers 1..5 = thumb..pinky (MediaPipe fingertip landmarks 4/8/12/16/20).
+// This is the seam for the future puppet editor — re-point any finger at any part here.
+export interface FingerBind { name: string; landmark: number; target: TargetName; bodyAnchor: Vec2; }
+export const FINGERS: FingerBind[] = [
+  { name: "1 thumb→L.hand",  landmark: 4,  target: "lArm",  bodyAnchor: { x: 0, y: -0.4 } },
+  { name: "2 index→L.foot",  landmark: 8,  target: "lLeg",  bodyAnchor: { x: 0, y: -0.45 } },
+  { name: "3 middle→head",   landmark: 12, target: "torso", bodyAnchor: { x: 0, y: 0.5 } },
+  { name: "4 ring→R.foot",   landmark: 16, target: "rLeg",  bodyAnchor: { x: 0, y: -0.45 } },
+  { name: "5 pinky→R.hand",  landmark: 20, target: "rArm",  bodyAnchor: { x: 0, y: -0.4 } },
 ];
 
 export interface Rig {
   world: RAPIER_NS.World;
-  control: RAPIER_NS.RigidBody;
-  parts: Capsule[];          // torso + limbs (drawn thick)
+  controls: RAPIER_NS.RigidBody[]; // 5 finger control points (aligned with FINGERS / strings)
+  parts: Capsule[];                // torso + limbs
   torso: RAPIER_NS.RigidBody;
-  strings: PuppetString[];   // the four control strings (all non-rigid ropes; head bears the weight)
-  // Control-local anchor positions AFTER pitch/yaw posing (aligned with `strings`), plus the
-  // cross-bar's decorative top tip. The renderer draws the bar + string tops from these so the
-  // strings always stay attached to the foreshortened "+". The body itself only carries ROLL.
-  posedAnchors: Vec2[];
-  barTip: Vec2;
+  strings: PuppetString[];         // 5 finger strings
 }
-
-// ---- control tilt response: how roll/pitch/yaw re-pose the IN-PLANE control anchors ----
-// The control body only rolls (in-plane Z) — rotating it out of plane would yank the z-locked
-// lower-back rope perpendicular to its only free axes and blow the solver up (verified). So pitch
-// and yaw are simulated by repositioning the anchors within the plane:
-//   * cos() foreshortening shrinks the bar (vertical member under pitch, horizontal under yaw) —
-//     the orthographic cue the PRD asks for;
-//   * a small NOD/TURN pull then actually moves the puppet through the strings (foreshortening
-//     alone only slackens the max-length ropes, so it can't pull on its own).
-// PRD §2: keep it modest — these gains are deliberately gentle and ride heavily-smoothed signals.
-const NOD_GAIN = 1.4;  // pitch(rad) -> head anchor drop: the head string tips the torso into a nod
-const TURN_GAIN = 0.7; // yaw(rad)  -> asymmetric shoulder height: the shoulders swing the torso round
-
-// Loose-limb slack: the limb ropes (shoulders + lower back) carry little load, so they hang with
-// visible slack and droop. maxLength = rest distance * this multiplier. >1 buys droop; tilting or
-// moving the control takes the slack up and re-poses the limb (so the pitch feature still bites).
-function posedAnchor(name: string, base: Vec2, pitch: number, yaw: number): Vec2 {
-  let x = base.x * Math.cos(yaw);   // horizontal members foreshorten as the bar yaws
-  let y = base.y * Math.cos(pitch); // vertical members foreshorten as the bar pitches
-  if (name === "head") y -= pitch * NOD_GAIN;     // pull the head string -> nod / weight shift
-  else if (name === "lHand") y += yaw * TURN_GAIN; // bar ends swap height -> turn (now via the hands)
-  else if (name === "rHand") y -= yaw * TURN_GAIN;
-  return { x, y };
-}
-
-// Constraint solver iterations. The strings are 10-link chains — ten constraints in SERIES holding a
-// heavy torso with light links, so they give under load far more than a single rope did. The control
-// is One-Euro-smoothed so it never teleports; at realistic hand speed 48 iterations keeps chain
-// stretch ~1-2% (up to ~7% under an aggressive combined move+tilt). Beyond ~48 it plateaus (the
-// residual is the series-compliance of light links, not an iteration count), so 48 is the sweet spot.
-const SOLVER_ITERATIONS = 48;
 
 export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
   const world = new RAPIER.World({ x: 0, y: -gravityY, z: 0 });
   world.integrationParameters.numSolverIterations = SOLVER_ITERATIONS;
   const parts: Capsule[] = [];
 
-  // 2.5D plane lock on every dynamic body: free X/Y translation, no Z; rotate only about Z.
-  // Damping is set so swings settle instead of oscillating forever (see DEFAULT_*_DAMPING).
-  // zRot spawns the body pre-rotated about Z (used to align chain segments along a diagonal string).
+  // 2.5D plane lock on every dynamic body. zRot pre-rotates (aligns chain segments along a string).
   const dyn = (cx: number, cy: number, zRot = 0) =>
     RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(cx, cy, 0)
@@ -174,12 +110,7 @@ export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
       b1, b2, true,
     );
 
-  // ---- control bar: kinematic, follows the palm; no collider needed (joints use local anchors) ----
-  const control = world.createRigidBody(
-    RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(0, CONTROL_BASE_Y, 0),
-  );
-
-  // ---- floor: static shelf at the bottom so a lowered control rests the puppet on-screen ----
+  // ---- floor ----
   const floorBody = world.createRigidBody(
     RAPIER.RigidBodyDesc.fixed().setTranslation(0, FLOOR_TOP - FLOOR_HALF_H, 0),
   );
@@ -188,44 +119,34 @@ export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
     floorBody,
   );
 
-  // ---- torso, placed so the head chain hangs at exactly its rest length ----
+  // ---- torso + limbs ----
   const torsoHalf = 0.5;
   const torsoCY = CONTROL_BASE_Y - CENTER_STRING_LEN - torsoHalf; // 4.3
   const torso = limb(0, torsoCY, torsoHalf, 0.25, 1.4, "#e8e8e8");
-
-  // ---- limbs hang passively off the torso (same topology as spike-1) ----
   const lArm = limb(-0.3, torsoCY - 0.1, 0.4, 0.12, 1.0, "#39d98a");
   const rArm = limb( 0.3, torsoCY - 0.1, 0.4, 0.12, 1.0, "#39d98a");
   spherical(torso, { x: -0.3, y: 0.3 }, lArm, { x: 0, y: 0.4 });
   spherical(torso, { x:  0.3, y: 0.3 }, rArm, { x: 0, y: 0.4 });
-
   const lLeg = limb(-0.15, torsoCY - 0.95, 0.45, 0.14, 1.1, "#5b8cff");
   const rLeg = limb( 0.15, torsoCY - 0.95, 0.45, 0.14, 1.1, "#5b8cff");
   spherical(torso, { x: -0.15, y: -0.5 }, lLeg, { x: 0, y: 0.45 });
   spherical(torso, { x:  0.15, y: -0.5 }, rLeg, { x: 0, y: 0.45 });
 
-  // ---- four control strings: head + lower-back to the torso, the two bar ends to the hands ----
-  // Each is a CHAIN of SEG_COUNT stiff links spawned along the control->body line and joined by
-  // spherical joints (control -> seg0 -> ... -> segN -> body). Rigid links => no stretch; the hinges
-  // => it folds and goes slack without ever snapping taut.
-  const targets: Record<TargetName, RAPIER_NS.RigidBody> = { torso, lArm, rArm };
-  const controlT = control.translation();
-  const strings: PuppetString[] = ATTACH.map((spec) => {
-    const body = targets[spec.target];
-    const bodyT = body.translation();
-    const top: Vec2 = { x: controlT.x + spec.controlAnchor.x, y: controlT.y + spec.controlAnchor.y };
-    const bot: Vec2 = { x: bodyT.x + spec.bodyAnchor.x, y: bodyT.y + spec.bodyAnchor.y };
-    const restDist = Math.hypot(bot.x - top.x, bot.y - top.y) || 1e-3;
-    const nominalLen = restDist * spec.slack;
-    const segHalf = nominalLen / SEG_COUNT / 2;
-    // segment local +Y points UP the string (toward the control); pre-rotate spawns so the chain
-    // starts straight along top->bot (handles diagonal hand strings without a snap on the first step).
-    const theta = Math.atan2((bot.x - top.x) / restDist, -(bot.y - top.y) / restDist);
+  const targets: Record<TargetName, RAPIER_NS.RigidBody> = { torso, lArm, rArm, lLeg, rLeg };
 
+  // ---- chain builder: SEG_COUNT stiff links from a control body's origin to body@anchor ----
+  const buildChain = (fromBody: RAPIER_NS.RigidBody, toBody: RAPIER_NS.RigidBody, toAnchor: Vec2) => {
+    const f = fromBody.translation();
+    const top = { x: f.x, y: f.y };
+    const bt = toBody.translation();
+    const bot = { x: bt.x + toAnchor.x, y: bt.y + toAnchor.y };
+    const restDist = Math.hypot(bot.x - top.x, bot.y - top.y) || 1e-3;
+    const nominalLen = restDist * STRING_SLACK;
+    const segHalf = nominalLen / SEG_COUNT / 2;
+    const theta = Math.atan2((bot.x - top.x) / restDist, -(bot.y - top.y) / restDist);
     const segs: RAPIER_NS.RigidBody[] = [];
-    let prev: RAPIER_NS.RigidBody = control;
-    let prevBottom: Vec2 = spec.controlAnchor;      // control-side anchor (local to the control body)
-    let controlJoint!: RAPIER_NS.ImpulseJoint;
+    let prev = fromBody;
+    let prevBottom: Vec2 = { x: 0, y: 0 }; // control point = the body origin
     for (let i = 0; i < SEG_COUNT; i++) {
       const t = (i + 0.5) / SEG_COUNT;
       const seg = world.createRigidBody(dyn(top.x + (bot.x - top.x) * t, top.y + (bot.y - top.y) * t, theta));
@@ -234,47 +155,39 @@ export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
         seg,
       );
       segs.push(seg);
-      const j = spherical(prev, prevBottom, seg, { x: 0, y: segHalf }); // seg top (toward control)
-      if (i === 0) controlJoint = j;
+      spherical(prev, prevBottom, seg, { x: 0, y: segHalf });
       prev = seg;
-      prevBottom = { x: 0, y: -segHalf };                                // seg bottom (toward body)
+      prevBottom = { x: 0, y: -segHalf };
     }
-    spherical(prev, prevBottom, body, spec.bodyAnchor);
-    return { name: spec.name, controlAnchor: spec.controlAnchor, body, bodyAnchor: spec.bodyAnchor, controlJoint, segs, nominalLen };
+    spherical(prev, prevBottom, toBody, toAnchor);
+    return { segs, nominalLen };
+  };
+
+  // ---- one finger control point + string per FINGERS row ----
+  const controls: RAPIER_NS.RigidBody[] = [];
+  const strings: PuppetString[] = FINGERS.map((f) => {
+    const body = targets[f.target];
+    const bt = body.translation();
+    // default control point: straight above the part's anchor at the top -> string vertical at spawn.
+    const control = world.createRigidBody(
+      RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(bt.x + f.bodyAnchor.x, CONTROL_BASE_Y, 0),
+    );
+    controls.push(control);
+    const { segs, nominalLen } = buildChain(control, body, f.bodyAnchor);
+    return { name: f.name, control, body, bodyAnchor: f.bodyAnchor, segs, nominalLen };
   });
 
-  const posedAnchors = strings.map((s) => ({ ...s.controlAnchor }));
-  return { world, control, parts, torso, strings, posedAnchors, barTip: { x: 0, y: CONTROL_HALF_V } };
+  return { world, controls, parts, torso, strings };
 }
 
-// Pose the control each frame. Roll is a REAL in-plane Z rotation of the kinematic body, so it
-// poses the torso through the strings (one shoulder rises, the other drops -> the puppet leans).
-// Pitch & yaw are simulated in-plane via posedAnchor() — the body never leaves z=0, so every
-// dynamic body stays Z-locked while the bar still foreshortens and the puppet still responds.
-export function poseControl(rig: Rig, roll: number, pitch: number, yaw: number): void {
-  // physics: in-plane roll only — a pure quaternion about Z (out-of-plane rotation would yank the
-  // z-locked bodies and blow the solver up). Pitch/yaw are baked into the anchors below instead.
-  rig.control.setNextKinematicRotation({ x: 0, y: 0, z: Math.sin(roll / 2), w: Math.cos(roll / 2) });
-  for (let i = 0; i < rig.strings.length; i++) {
-    const s = rig.strings[i];
-    const a = posedAnchor(s.name, s.controlAnchor, pitch, yaw);
-    s.controlJoint.setAnchor1({ x: a.x, y: a.y, z: 0 });      // foreshortened + nod/turn pull
-    rig.posedAnchors[i] = a;
-  }
-  rig.barTip = { x: 0, y: CONTROL_HALF_V * Math.cos(pitch) }; // decorative top of the "+"
-}
-
-// Set swing damping on every dynamic body (torso, limbs, string segments) at runtime — driven by
-// the damping slider. The kinematic control is excluded (it's positioned directly, not simulated).
+// Set swing damping on every dynamic body (parts + string segments). Controls are kinematic (excluded).
 export function setDamping(rig: Rig, linear: number, angular: number): void {
   const apply = (b: RAPIER_NS.RigidBody) => { b.setLinearDamping(linear); b.setAngularDamping(angular); };
   for (const p of rig.parts) apply(p.body);
   for (const s of rig.strings) for (const seg of s.segs) apply(seg);
 }
 
-// Scale the puppet's mass at runtime (each part's density = baseDensity * weight). Heavier parts
-// keep more tension on the chains. The string segments are left light on purpose — the puppet should
-// out-pull the strings, not the other way round.
+// Scale puppet mass at runtime (part density = baseDensity * weight). Segments stay light on purpose.
 export function setPuppetWeight(rig: Rig, weight: number): void {
   for (const p of rig.parts) {
     p.collider.setDensity(p.baseDensity * weight);
