@@ -62,8 +62,10 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
     live with the debug overlay.
 - **Floor:** a static shelf (`FLOOR_TOP`) near the bottom so a lowered hand rests the puppet
   on-screen instead of dropping it away. Collision groups: puppet parts hit the floor but not each
-  other; string segments collide with nothing. Lower your fingers and the puppet **crumples onto
-  the floor** (rests cleanly, ~3 mm contact, no burying); raise them and it lifts off.
+  other; string segments **also hit the floor** (so the heavy chains pile/drape on it) but still
+  **pass through the puppet and through each other** (no joint jitter). Lower your fingers and the
+  puppet **crumples onto the floor** (rests cleanly, ~3 mm contact, no burying); raise them and it
+  lifts off.
 - **Hand overlay:** all 21 landmarks + `HAND_CONNECTIONS` over the camera preview, with the **five
   driving fingertips ringed in their finger colours and numbered 1–5**, matching the on-stage
   control points — so the finger→part mapping reads at a glance.

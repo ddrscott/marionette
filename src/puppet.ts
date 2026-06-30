@@ -35,7 +35,7 @@ const STRING_SLACK = 1.0;
 
 // Collision filtering (high 16 = membership, low 16 = mask of groups it collides with).
 const PUPPET_GROUP = 0x00010002; // member group 0, collides with group 1 (floor)
-const STRING_GROUP = 0x00010000; // member group 0, collides with nothing
+const STRING_GROUP = 0x00010002; // member group 0, collides with the floor (bit1) but not the puppet or other segments
 const FLOOR_GROUP  = 0x00020001; // member group 1, collides with group 0 (puppet)
 
 // Floor: static shelf near the bottom so a lowered control rests the puppet on-screen.
