@@ -107,11 +107,10 @@ export const LEFT_HAND_BINDING = mirrorBinding(FINGERS); // thumb screen-right â
 
 // --- THE FLIPPABLE HANDEDNESS CONSTANT ---
 // MediaPipe reports handedness from the UNMIRRORED camera image (`categoryName` "Left"/"Right"), but
-// our preview + stage are selfie-MIRRORED, so the label as the user sees it is flipped: a physically
-// RIGHT hand is usually labelled "Left". With this `true` we INVERT the label before picking a
-// binding, which is the best guess for a mirrored selfie view. If on a live webcam the two hands come
-// out with CROSSED strings, flip this to `false`.
-export const HANDEDNESS_LABEL_IS_MIRRORED = true;
+// our preview + stage are selfie-MIRRORED. Empirically (user-confirmed on a live webcam) the raw
+// MediaPipe label already matches our mirrored stage, so we do NOT invert it. `false` = use the
+// label as-is. If the connections ever come out crossed again, flip this back to `true`.
+export const HANDEDNESS_LABEL_IS_MIRRORED = false;
 
 // Choose the no-crossing binding for a detected hand from its MediaPipe handedness label.
 export function bindingForHandedness(categoryName: string): FingerBind[] {
