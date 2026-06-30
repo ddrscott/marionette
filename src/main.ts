@@ -2,6 +2,7 @@ import RAPIER from "@dimforge/rapier3d-compat";
 import { OneEuro } from "./oneEuro.ts";
 import {
   buildWorld, addPuppet, setDamping, setPuppetWeight, setStringFriction,
+  reposePuppet, attachStringForSlot, detachAllStrings,
   FINGERTIPS, bindingForHandedness, PUPPET_X_OFFSET, RIGHT_HAND_BINDING, LEFT_HAND_BINDING,
   DEFAULT_LINEAR_DAMPING, DEFAULT_ANGULAR_DAMPING, DEFAULT_PUPPET_WEIGHT, DEFAULT_STRING_FRICTION,
   CENTER_STRING_LEN, WORLD_VIEW_HEIGHT, FLOOR_TOP, type Puppet, type FingerBind, type TargetName,
@@ -128,6 +129,49 @@ const makeHandState = (): HandState => ({
 
 const handStates: [HandState, HandState] = [makeHandState(), makeHandState()];
 
+// ---- "start the engine" attach ritual, one state machine per puppet slot. A puppet only comes
+// alive after its hand holds still over a prompt; the strings then animate on one at a time. Moving
+// too soon aborts it; the hand leaving the camera detaches it. The two sides run independently, so
+// one raised hand attaches one puppet while the other keeps waiting. ----
+const HOLD_MS = 700;          // hold still this long (ms) over the prompt to trigger attachment
+const STEADY_MARGIN = 0.5;    // world units a fingertip may wander and still count as "holding still"
+const ATTACH_STRING_MS = 200; // each string attaches over 0.2s (per spec)
+const ATTACH_MARGIN = 0.8;    // move a fingertip more than this DURING attach -> the attach fails
+const GRACE_MS = 500;         // hand absent this long -> detach + back to waiting (rides out brief gaps)
+const ATTACH_ORDER = [2, 0, 4, 1, 3]; // slot order strings snap on: torso(head) first, then hands, feet
+
+type Phase = "waiting" | "steadying" | "attaching" | "running";
+interface SlotState {
+  phase: Phase;
+  steadyAnchor: { x: number; y: number }[]; // 5 fingertip positions when the current steady streak began
+  steadyT0: number;                          // start of the steady streak
+  captured: { x: number; y: number }[];      // 5 fingertip positions captured at attach
+  bind: FingerBind[];                        // binding captured at attach (so drive matches the attach)
+  attachT0: number;                          // start of the attach animation
+  attached: number;                          // strings attached so far this ritual
+  lastPresentT: number;                      // last time the hand was present (for the grace/reset)
+}
+const makeSlotState = (): SlotState => ({
+  phase: "waiting",
+  steadyAnchor: FINGERTIPS.map(() => ({ x: 0, y: 0 })),
+  steadyT0: 0,
+  captured: FINGERTIPS.map(() => ({ x: 0, y: 0 })),
+  bind: RIGHT_HAND_BINDING,
+  attachT0: 0,
+  attached: 0,
+  lastPresentT: -1e9,
+});
+const slotStates: [SlotState, SlotState] = [makeSlotState(), makeSlotState()];
+
+const copyPts = (dst: { x: number; y: number }[], src: { x: number; y: number }[]): void => {
+  for (let i = 0; i < dst.length; i++) { dst[i].x = src[i].x; dst[i].y = src[i].y; }
+};
+const maxPtDist = (a: { x: number; y: number }[], b: { x: number; y: number }[]): number => {
+  let m = 0;
+  for (let i = 0; i < a.length; i++) { const d = Math.hypot(a[i].x - b[i].x, a[i].y - b[i].y); if (d > m) m = d; }
+  return m;
+};
+
 let world: RAPIER.World;
 let puppets: Puppet[] = [];
 let renderer: Renderer;
@@ -238,6 +282,80 @@ function drivePuppet(p: Puppet, h: HandState): void {
   }
 }
 
+// Advance one puppet's attach state machine and drive it. WAITING/STEADYING show the prompt and
+// don't move the puppet (it rests on the floor); ATTACHING pins the controls at the captured pose
+// and snaps the strings on; RUNNING drives the (now living) puppet from the live hand.
+function updateSlot(slot: 0 | 1, now: number, dt: number): void {
+  const h = handStates[slot];
+  const st = slotStates[slot];
+  const p = puppets[slot];
+  if (h.present) st.lastPresentT = now;
+  const absent = now - st.lastPresentT > GRACE_MS;
+
+  switch (st.phase) {
+    case "waiting":
+      reposePuppet(p, p.homeTorso); // hold it at the neutral scene-setup pose, ready to be brought alive
+      if (h.present) { copyPts(st.steadyAnchor, h.pos); st.steadyT0 = now; st.phase = "steadying"; }
+      break;
+
+    case "steadying":
+      reposePuppet(p, p.homeTorso);
+      if (absent) { st.phase = "waiting"; break; }
+      if (!h.present) break; // brief gap — keep the streak alive
+      if (maxPtDist(h.pos, st.steadyAnchor) > STEADY_MARGIN) {
+        copyPts(st.steadyAnchor, h.pos); st.steadyT0 = now; // moved — restart the hold
+      } else if (now - st.steadyT0 >= HOLD_MS) {
+        beginAttach(slot, now);
+      }
+      break;
+
+    case "attaching":
+      if (absent || (h.present && maxPtDist(h.pos, st.captured) > ATTACH_MARGIN)) { resetToWaiting(slot); break; }
+      reposePuppet(p, p.homeTorso); // keep the body crisp at neutral while the strings snap on
+      // hold the already-attached controls at the captured pose (zero velocity -> no whip)
+      for (const s of p.strings) s.control.setNextKinematicTranslation({ x: st.captured[s.slot].x, y: st.captured[s.slot].y, z: 0 });
+      // snap on the next string(s) as each 0.2s window elapses (first one at t=0)
+      const due = Math.min(ATTACH_ORDER.length, Math.floor((now - st.attachT0) / ATTACH_STRING_MS) + 1);
+      while (st.attached < due) {
+        const sSlot = ATTACH_ORDER[st.attached];
+        attachStringForSlot(RAPIER, world, p, sSlot, st.captured[sSlot], st.bind[sSlot]);
+        st.attached++;
+      }
+      if (st.attached >= ATTACH_ORDER.length && now - st.attachT0 >= ATTACH_ORDER.length * ATTACH_STRING_MS) {
+        setStringFriction(p, friction); // apply the live friction slider to the freshly built segments
+        h.primed = false;               // running starts the smoothdamp spring AT the captured pose
+        st.phase = "running";
+      }
+      break;
+
+    case "running":
+      if (absent) { resetToWaiting(slot); break; }
+      if (h.present) { smoothControls(h, dt); drivePuppet(p, h); } // brief gaps just hold (puppet hangs)
+      break;
+  }
+}
+
+// Hold satisfied: capture the held pose and start the string animation with the puppet held at its
+// neutral scene-setup pose (the strings bind from the captured fingertips DOWN to the home puppet).
+function beginAttach(slot: 0 | 1, now: number): void {
+  const h = handStates[slot];
+  const st = slotStates[slot];
+  copyPts(st.captured, h.pos);
+  st.bind = h.binding;
+  st.attachT0 = now;
+  st.attached = 0;
+  reposePuppet(puppets[slot], puppets[slot].homeTorso);
+  st.phase = "attaching";
+}
+
+// Cut the strings and return to the prompt, snapping the puppet back to its neutral home pose.
+function resetToWaiting(slot: 0 | 1): void {
+  detachAllStrings(world, puppets[slot]);
+  reposePuppet(puppets[slot], puppets[slot].homeTorso);
+  slotStates[slot].phase = "waiting";
+  slotStates[slot].attached = 0;
+}
+
 function loop(): void {
   const now = performance.now();
   frames++;
@@ -249,16 +367,23 @@ function loop(): void {
   const dt = Math.min(0.05, (now - lastLoopT) / 1000);
   lastLoopT = now;
 
-  // physics steps every frame; each puppet's controls are driven from its assigned hand (or hold).
+  // physics steps every frame; each puppet runs its own attach state machine (drives only when RUNNING).
   world.gravity = { x: 0, y: -gravityY, z: 0 };
-  if (handStates[0].present) smoothControls(handStates[0], dt); // glide controls toward targets at render rate
-  if (handStates[1].present) smoothControls(handStates[1], dt);
-  drivePuppet(puppets[0], handStates[0]);
-  drivePuppet(puppets[1], handStates[1]);
+  updateSlot(0, now, dt);
+  updateSlot(1, now, dt);
   world.step();
 
   renderer.clear();
-  for (const p of puppets) renderer.drawPuppet(p);
+  for (let s = 0 as 0 | 1; s <= 1; s = (s + 1) as 0 | 1) {
+    renderer.drawPuppet(puppets[s]);
+    const ph = slotStates[s].phase;
+    if (ph === "waiting" || ph === "steadying") {
+      const prog = ph === "steadying" ? Math.min(1, (now - slotStates[s].steadyT0) / HOLD_MS) : 0;
+      renderer.drawPrompt(puppets[s].xOffset, s, prog, now); // hand outline above the puppet; s mirrors it
+      // show the live fingertip points during calibration so the user can line them up with the outline
+      if (ph === "steadying" && handStates[s].present) renderer.drawFingerPoints(handStates[s].pos);
+    }
+  }
   if (debug) renderer.drawDebug(world, puppets.flatMap((p) => p.strings));
   drawHands(overlayCtx, camOverlay.width, camOverlay.height, [handStates[0].landmarks, handStates[1].landmarks]);
 

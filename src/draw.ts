@@ -6,6 +6,30 @@ import { HAND_CONNECTIONS, type Landmark } from "./hands.ts";
 // markers, and the camera-overlay fingertip dots so the finger→part mapping reads at a glance.
 const FINGER_COLORS = ["#ff6b6b", "#ffd93d", "#6bcb77", "#4d96ff", "#c780ff"];
 
+// The attach-ritual prompt art: a LEFT-hand SVG (public/hand-left.svg). Its outline is black, which
+// disappears on the dark stage, so on load we re-tint every opaque pixel to #808080 on an offscreen
+// canvas (drawImage + `source-in` fill) and draw THAT. Mirrored horizontally for the right-side
+// prompt so it reads as a right hand. Aspect is taken from the viewBox (678x501) so layout doesn't
+// depend on the browser's intrinsic-size handling of SVG <img>.
+const HAND_AR = 678 / 501;
+const HAND_TINT = "#808080";
+const HAND_IMG = new Image();
+let HAND_TINTED: HTMLCanvasElement | null = null;
+HAND_IMG.onload = () => {
+  const iw = HAND_IMG.naturalWidth || 678, ih = HAND_IMG.naturalHeight || 501;
+  const off = document.createElement("canvas");
+  off.width = iw; off.height = ih;
+  const g = off.getContext("2d");
+  if (g) {
+    g.drawImage(HAND_IMG, 0, 0, iw, ih);
+    g.globalCompositeOperation = "source-in"; // keep the hand's shape, replace its colour
+    g.fillStyle = HAND_TINT;
+    g.fillRect(0, 0, iw, ih);
+    HAND_TINTED = off;
+  }
+};
+HAND_IMG.src = "/hand-left.svg";
+
 // Bodies rotate only about Z, so the world rotation is a single angle.
 const zAngle = (q: RAPIER_NS.Rotation): number => 2 * Math.atan2(q.z, q.w);
 
@@ -79,13 +103,14 @@ export class Renderer {
     // (1) strings — each a smooth curve from its finger control point through the chain to the part.
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    rig.strings.forEach((s, i) => {
+    rig.strings.forEach((s) => {
+      const col = FINGER_COLORS[s.slot % FINGER_COLORS.length];
       const top = s.control.translation();
       const pts: Vec2[] = [{ x: top.x, y: top.y }];
       for (const seg of s.segs) { const c = seg.translation(); pts.push({ x: c.x, y: c.y }); }
       const end = localToWorld(s.body, s.bodyAnchor);
       pts.push(end);
-      ctx.strokeStyle = FINGER_COLORS[i % FINGER_COLORS.length];
+      ctx.strokeStyle = col;
       ctx.lineWidth = 1.6;
       ctx.globalAlpha = 0.85;
       ctx.beginPath();
@@ -93,7 +118,7 @@ export class Renderer {
       ctx.stroke();
       ctx.globalAlpha = 1;
       // attach dot on the puppet
-      ctx.fillStyle = FINGER_COLORS[i % FINGER_COLORS.length];
+      ctx.fillStyle = col;
       ctx.beginPath();
       ctx.arc(this.sx(end.x), this.sy(end.y), 3, 0, Math.PI * 2);
       ctx.fill();
@@ -112,16 +137,72 @@ export class Renderer {
     }
 
     // (3) finger control points — coloured discs numbered 1..5 (the puppeteer's fingertips on stage).
+    // Drawn per ATTACHED string (by finger slot), so during the attach ritual discs pop in one at a
+    // time with their strings, and a detached/waiting puppet shows none.
     ctx.font = "bold 11px ui-monospace, monospace";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    rig.controls.forEach((c, i) => {
-      const t = c.translation();
+    rig.strings.forEach((s) => {
+      const t = s.control.translation();
       const px = this.sx(t.x), py = this.sy(t.y);
-      ctx.fillStyle = FINGER_COLORS[i % FINGER_COLORS.length];
+      ctx.fillStyle = FINGER_COLORS[s.slot % FINGER_COLORS.length];
       ctx.beginPath();
       ctx.arc(px, py, 8, 0, Math.PI * 2);
       ctx.fill();
+      ctx.fillStyle = "#0d0d0f";
+      ctx.fillText(String(s.slot + 1), px, py + 0.5);
+    });
+    ctx.textAlign = "start";
+    ctx.textBaseline = "alphabetic";
+  }
+
+  // ---- attach-ritual prompt: the hand outline ABOVE the puppet (`worldX` = the puppet's home x) in
+  // the top third, ~30% of screen height. `side` 0 = left hand as-is, 1 = mirrored -> right hand.
+  // Shown while WAITING (gentle pulse) or STEADYING (brightens + a progress bar fills 0->1). The user
+  // lines their live fingertip points (drawFingerPoints) up with this outline to calibrate.
+  drawPrompt(worldX: number, side: 0 | 1, progress: number, now: number): void {
+    const { ctx } = this;
+    const h = this.canvas.height;
+    const cx = this.sx(worldX); // horizontally above the puppet
+    const cy = h / 6;           // top third
+    const hh = 0.30 * h;        // ~30% of screen height
+    const hw = hh * HAND_AR;
+
+    if (HAND_TINTED) {
+      const a = progress > 0 ? 0.6 + 0.4 * progress : 0.45 + 0.22 * Math.sin(now / 350);
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.translate(cx, cy);
+      if (side === 1) ctx.scale(-1, 1); // left-hand art -> right hand for the right side
+      ctx.drawImage(HAND_TINTED, -hw / 2, -hh / 2, hw, hh);
+      ctx.restore();
+    }
+
+    // progress bar + label under the hand
+    const by = cy + hh / 2 + 12;
+    const bw = Math.min(hw * 0.6, 160), bx = cx - bw / 2;
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "rgba(255,255,255,0.15)";
+    ctx.fillRect(bx, by, bw, 5);
+    if (progress > 0) { ctx.fillStyle = "#6bcb77"; ctx.fillRect(bx, by, bw * progress, 5); }
+    ctx.font = "12px ui-monospace, monospace";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "rgba(232,232,232,0.85)";
+    ctx.fillText(progress > 0 ? "hold still…" : "raise a hand", cx, by + 20);
+    ctx.textAlign = "start";
+  }
+
+  // The live fingertip control points during calibration — coloured + numbered by finger slot — so
+  // the user can line them up with the hand outline before the strings attach.
+  drawFingerPoints(pts: Vec2[]): void {
+    const { ctx } = this;
+    ctx.font = "bold 11px ui-monospace, monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    pts.forEach((p, i) => {
+      const px = this.sx(p.x), py = this.sy(p.y);
+      ctx.fillStyle = FINGER_COLORS[i % FINGER_COLORS.length];
+      ctx.beginPath(); ctx.arc(px, py, 8, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = "#0d0d0f";
       ctx.fillText(String(i + 1), px, py + 0.5);
     });
