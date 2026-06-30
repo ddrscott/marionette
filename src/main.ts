@@ -36,7 +36,7 @@ $("weight").oninput = (e) => {
 };
 // overlay raw physics line segments + per-chain stretch readout. NOTE: the checkbox id must NOT be
 // "dbg" — that collides with the MediaPipe wasm glue's global `dbg` and crashes init.
-let debug = true;
+let debug = false; // off by default — the physics overlay is a dev tool and costs render time
 $("debugChk").onchange = (e) => { debug = (e.target as HTMLInputElement).checked; };
 
 $("slen").textContent = Math.round((CENTER_STRING_LEN / WORLD_VIEW_HEIGHT) * 100).toString();

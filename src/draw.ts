@@ -134,18 +134,20 @@ export class Renderer {
   drawDebug(world: RAPIER_NS.World, strings: PuppetString[]): void {
     const { ctx } = this;
 
+    // Batch ALL physics segments into ONE path + one stroke. (Per-segment beginPath/stroke is the
+    // canvas perf killer — at ~hundreds of segments × 2 puppets it dominated the frame and pinned
+    // fps to 30.) We drop Rapier's per-vertex colours for one uniform debug colour; the shapes still
+    // read fine, and it's ~1 draw call instead of hundreds.
     const buf = world.debugRender();
-    const v = buf.vertices, col = buf.colors;
+    const v = buf.vertices;
+    ctx.strokeStyle = "rgba(120,200,160,0.55)";
     ctx.lineWidth = 1;
+    ctx.beginPath();
     for (let i = 0; i + 5 < v.length; i += 6) {
-      const ci = (i / 3) * 4;
-      const r = Math.round(col[ci] * 255), g = Math.round(col[ci + 1] * 255), b = Math.round(col[ci + 2] * 255);
-      ctx.strokeStyle = `rgba(${r},${g},${b},${col[ci + 3] * 0.7})`;
-      ctx.beginPath();
       ctx.moveTo(this.sx(v[i]), this.sy(v[i + 1]));
       ctx.lineTo(this.sx(v[i + 3]), this.sy(v[i + 4]));
-      ctx.stroke();
     }
+    ctx.stroke();
 
     ctx.font = "11px ui-monospace, monospace";
     ctx.textBaseline = "top";
