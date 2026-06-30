@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Puppet Spike 1 — palm → perch feel test</title>
+<style>
+  :root { --bg:#0d0d0f; --fg:#e8e8e8; --dim:#7a7a82; --accent:#39d98a; --line:#26262c; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  .wrap { display:grid; grid-template-columns:1fr 280px; height:100vh; }
+  #stage { position:relative; background:#08080a; }
+  #scene { position:absolute; inset:0; width:100%; height:100%; }
+  #cam { position:absolute; right:12px; bottom:12px; width:180px; transform:scaleX(-1);
+         border:1px solid var(--line); border-radius:4px; opacity:.8; }
+  aside { border-left:1px solid var(--line); padding:18px; overflow:auto; }
+  h1 { font-size:13px; letter-spacing:.04em; text-transform:uppercase; color:var(--dim); margin:0 0 14px; }
+  .stat { display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--line); }
+  #drop { color:#ff4d4d; font-weight:700; visibility:hidden; }
+  .row { margin:16px 0; }
+  label { display:block; color:var(--dim); margin-bottom:4px; font-size:12px; }
+  input[type=range] { width:100%; accent-color:var(--accent); }
+  .val { color:var(--fg); }
+  .note { color:var(--dim); font-size:12px; margin-top:18px; border-top:1px solid var(--line); padding-top:12px; }
+  #boot { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <video id="cam" autoplay playsinline muted></video>
+    <div id="boot">loading model + physics…</div>
+  </div>
+  <aside>
+    <h1>Puppet Spike 1</h1>
+    <div class="stat"><span>fps</span><b><span id="fps">–</span></b></div>
+    <div class="stat"><span>hand</span><b id="drop">LOST</b></div>
+
+    <div class="row">
+      <label>swing range <span class="val" id="rv">1.6</span> <span style="color:var(--dim)">(how far your hand throws it)</span></label>
+      <input id="range" type="range" min="0.5" max="3" step="0.1" value="1.6" />
+    </div>
+    <div class="row">
+      <label>gravity <span class="val" id="gv">9.8</span> <span style="color:var(--dim)">(low = floaty, high = snappy)</span></label>
+      <input id="grav" type="range" min="3" max="22" step="0.5" value="9.8" />
+    </div>
+
+    <div class="note">
+      Move your hand. The perch (white) follows your palm; the puppet hangs and swings off it.<br><br>
+      The real question now: can you do anything <b>on purpose</b>? Swing an arm where you want it, walk the puppet sideways, settle it from a swing — or is it pure uncontrollable chaos? You want the funny-hard middle, not the impossible end.<br><br>
+      If you can find intent in here, the concept survives and fingers→strings is next. If it's hopeless at every gravity/range setting, the double-indirection is too much and we rethink before writing one more line.
+    </div>
+  </aside>
+</div>
+
+<script type="module">
+import { FilesetResolver, HandLandmarker }
+  from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.mjs";
+import RAPIER from "https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat/+esm";
+
+const video  = document.getElementById("cam");
+const canvas = document.getElementById("scene");
+const ctx    = canvas.getContext("2d");
+const $ = id => document.getElementById(id);
+
+// ---- One Euro filter (carried over from the dot test) ----
+const alpha = (c,dt) => { const tau=1/(2*Math.PI*c); return 1/(1+tau/dt); };
+class LP { constructor(){ this.s=null; } f(x,a){ this.s=this.s===null?x:a*x+(1-a)*this.s; return this.s; } }
+class OneEuro {
+  constructor(minCut=1.5, beta=0.01){ this.minCut=minCut; this.beta=beta; this.x=new LP(); this.dx=new LP(); this.lt=null; this.lx=null; }
+  filter(x,t){
+    if(this.lt===null){ this.lt=t; this.lx=x; return x; }
+    const dt=Math.max((t-this.lt)/1000,1e-3); this.lt=t;
+    const edx=this.dx.f((x-this.lx)/dt, alpha(1.0,dt));
+    const fx=this.x.f(x, alpha(this.minCut+this.beta*Math.abs(edx), dt));
+    this.lx=x; return fx;
+  }
+}
+const fpx=new OneEuro(), fpy=new OneEuro();
+
+// ---- tunables ----
+let swingRange=1.6, gravityY=9.8;
+$("range").oninput = e => { swingRange=+e.target.value; $("rv").textContent=swingRange.toFixed(1); };
+$("grav").oninput  = e => { gravityY =+e.target.value; $("gv").textContent=gravityY.toFixed(1); };
+
+// ---- physics world ----
+let world, perch, parts=[], target={x:0,y:3.8};
+const NOSELF = 0x00010000; // membership 1, filter 0 -> collides with nothing (no self-jitter)
+
+function makeLimb(cx,cy,half,rad,density,color){
+  const desc = RAPIER.RigidBodyDesc.dynamic()
+    .setTranslation(cx,cy,0)
+    .enabledTranslations(true,true,false)   // lock Z -> stay on the 2.5D plane
+    .enabledRotations(false,false,true);    // rotate only about camera axis
+  const body = world.createRigidBody(desc);
+  const col = RAPIER.ColliderDesc.capsule(half,rad).setDensity(density).setCollisionGroups(NOSELF);
+  world.createCollider(col, body);
+  parts.push({ body, half, rad, color });
+  return body;
+}
+function pin(b1,a1,b2,a2){ world.createImpulseJoint(RAPIER.JointData.spherical(a1,a2), b1, b2, true); }
+
+async function buildPuppet(){
+  world = new RAPIER.World({x:0,y:-gravityY,z:0});
+
+  // perch: kinematic, follows the palm
+  perch = world.createRigidBody(
+    RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(0,4,0));
+
+  // torso pinned to perch at torso-top, hangs below and swings
+  const torso = makeLimb(0,3.5,0.5,0.25,1.4,"#e8e8e8");
+  pin(perch,{x:0,y:0,z:0}, torso,{x:0,y:0.5,z:0});
+
+  const lArm = makeLimb(-0.3,3.4,0.4,0.12,1.0,"#39d98a");
+  const rArm = makeLimb( 0.3,3.4,0.4,0.12,1.0,"#39d98a");
+  pin(torso,{x:-0.3,y:0.3,z:0}, lArm,{x:0,y:0.4,z:0});
+  pin(torso,{x: 0.3,y:0.3,z:0}, rArm,{x:0,y:0.4,z:0});
+
+  const lLeg = makeLimb(-0.15,2.55,0.45,0.14,1.1,"#5b8cff");
+  const rLeg = makeLimb( 0.15,2.55,0.45,0.14,1.1,"#5b8cff");
+  pin(torso,{x:-0.15,y:-0.5,z:0}, lLeg,{x:0,y:0.45,z:0});
+  pin(torso,{x: 0.15,y:-0.5,z:0}, rLeg,{x:0,y:0.45,z:0});
+}
+
+// ---- view projection (orthographic side view) ----
+const SCALE=80;
+function sx(x){ return canvas.width/2 + x*SCALE; }
+function sy(y){ return canvas.height - y*SCALE + 60; }
+function zAngle(q){ return 2*Math.atan2(q.z, q.w); } // bodies rotate only about Z
+
+function drawCapsule(b,half,rad,color){
+  const p=b.translation(), a=zAngle(b.rotation());
+  const dx=Math.sin(a)*half*SCALE, dy=Math.cos(a)*half*SCALE; // local +Y axis in screen space
+  ctx.strokeStyle=color; ctx.lineWidth=rad*2*SCALE; ctx.lineCap="round";
+  ctx.beginPath();
+  ctx.moveTo(sx(p.x)-dx, sy(p.y)+dy);
+  ctx.lineTo(sx(p.x)+dx, sy(p.y)-dy);
+  ctx.stroke();
+}
+
+// ---- hand tracking ----
+let landmarker, lastVideoTime=-1, frames=0, fpsT=performance.now();
+
+async function initHands(){
+  const vision = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm");
+  landmarker = await HandLandmarker.createFromOptions(vision, {
+    baseOptions:{ modelAssetPath:"https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task", delegate:"GPU" },
+    runningMode:"VIDEO", numHands:1 });
+  const stream = await navigator.mediaDevices.getUserMedia({ video:{width:640,height:480} });
+  video.srcObject=stream; await video.play();
+}
+
+function readHand(now){
+  if(video.currentTime===lastVideoTime || !landmarker) return;
+  lastVideoTime=video.currentTime;
+  const res=landmarker.detectForVideo(video, now);
+  const hand=res.landmarks?.[0];
+  if(hand){
+    $("drop").style.visibility="hidden";
+    const lm=hand[9]; // palm center
+    const px=fpx.filter(lm.x, now), py=fpy.filter(lm.y, now);
+    target.x = (0.5 - px) * 2 * swingRange;            // mirror X, scale to range
+    target.y = 3.4 + (0.5 - py) * 1.6;                 // hand up/down -> perch up/down
+  } else {
+    $("drop").style.visibility="visible";
+  }
+}
+
+function resize(){ canvas.width=canvas.clientWidth; canvas.height=canvas.clientHeight; }
+addEventListener("resize", resize);
+
+function loop(){
+  const now=performance.now();
+  frames++; if(now-fpsT>=500){ $("fps").textContent=Math.round(frames*1000/(now-fpsT)); frames=0; fpsT=now; }
+
+  readHand(now);
+  world.gravity = { x:0, y:-gravityY, z:0 };
+  perch.setNextKinematicTranslation({ x:target.x, y:target.y, z:0 });
+  world.step();
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  // string from perch to torso
+  const pp=perch.translation();
+  ctx.strokeStyle="#3a3a44"; ctx.lineWidth=1.5; ctx.setLineDash([4,4]);
+  ctx.beginPath(); ctx.moveTo(sx(pp.x),sy(pp.y)); ctx.lineTo(sx(pp.x),sy(pp.y)); ctx.stroke();
+  ctx.setLineDash([]);
+  // perch marker
+  ctx.fillStyle="#fff"; ctx.fillRect(sx(pp.x)-6, sy(pp.y)-6, 12, 12);
+  // puppet
+  for(const part of parts) drawCapsule(part.body, part.half, part.rad, part.color);
+
+  requestAnimationFrame(loop);
+}
+
+(async function main(){
+  try {
+    await RAPIER.init();
+    await buildPuppet();
+    await initHands();
+    resize();
+    $("boot").remove();
+    requestAnimationFrame(loop);
+  } catch(e){
+    document.getElementById("boot").innerHTML =
+      "<pre style='color:#ff4d4d;padding:24px'>Init failed:\n"+e+
+      "\n\nServe over http://localhost (not file://) and use Chrome.</pre>";
+  }
+})();
+</script>
+</body>
+</html>
