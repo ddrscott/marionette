@@ -7,6 +7,6 @@
 - [x] Strings collide with the floor, still pass through the puppet — see [strings-hit-floor.md](strings-hit-floor.md)
 - [x] Two players from one camera (handedness-correct, no string crossing) — see [two-player-handedness.md](two-player-handedness.md)
 - [x] Finger control points can't go below the floor (top/left/right free) — see [clamp-fingers-floor.md](clamp-fingers-floor.md)
-- [ ] Camera source + quality pickers (persisted sidebar dropdowns) — see [camera-picker.md](camera-picker.md)
+- [-] Camera source + quality pickers (persisted sidebar dropdowns) — see [camera-picker.md](camera-picker.md)
 - [ ] Play-area margin (inset camera→play, overshoot offscreen; sidebar slider, default 10%, all sides) — see [play-area-margin.md](play-area-margin.md)
 - [x] Off-thread hand detection — CLASSIC web worker, async/best-effort (profiled: detection = 24.6ms) — see [hands-web-worker.md](hands-web-worker.md)
