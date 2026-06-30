@@ -1,6 +1,6 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import { OneEuro } from "./oneEuro.ts";
-import { buildRig, poseControl, setDamping, DEFAULT_LINEAR_DAMPING, CENTER_STRING_LEN, CONTROL_BASE_Y, WORLD_VIEW_HEIGHT, type Rig } from "./puppet.ts";
+import { buildRig, poseControl, setDamping, DEFAULT_LINEAR_DAMPING, CENTER_STRING_LEN, WORLD_VIEW_HEIGHT, type Rig } from "./puppet.ts";
 import { initHands, handPose, type Hands, type Landmark } from "./hands.ts";
 import { DRIVE, controlDrive, controlCenter, rollAngleOf } from "./control.ts";
 import { Renderer, drawHand } from "./draw.ts";
@@ -13,13 +13,13 @@ const camOverlay = $<HTMLCanvasElement>("camOverlay");
 const overlayCtx = camOverlay.getContext("2d")!;
 
 // ---- tunables (kept from §2 / spike-1 feel instrumentation) ----
-let swingRange = 1.6;
+let swingRange = 1.0; // 0..1 = fraction of full-screen reach (both axes)
 let gravityY = 9.8;
-let tiltRange = 1.0; // master multiplier on roll/pitch/yaw (0 = no tilt, control only translates)
+let tiltRange = 1.0;  // 0..1 = fraction of full rotation range (roll/pitch/yaw)
 let damping = DEFAULT_LINEAR_DAMPING; // swing settle rate (applied to linear + angular)
-$("range").oninput = (e) => { swingRange = +(e.target as HTMLInputElement).value; $("rv").textContent = swingRange.toFixed(1); };
+$("range").oninput = (e) => { swingRange = +(e.target as HTMLInputElement).value; $("rv").textContent = swingRange.toFixed(2); };
 $("grav").oninput = (e) => { gravityY = +(e.target as HTMLInputElement).value; $("gv").textContent = gravityY.toFixed(1); };
-$("tilt").oninput = (e) => { tiltRange = +(e.target as HTMLInputElement).value; $("tv").textContent = tiltRange.toFixed(1); };
+$("tilt").oninput = (e) => { tiltRange = +(e.target as HTMLInputElement).value; $("tv").textContent = tiltRange.toFixed(2); };
 $("damp").oninput = (e) => {
   damping = +(e.target as HTMLInputElement).value;
   $("dv").textContent = damping.toFixed(1);
@@ -48,6 +48,17 @@ const ZGRAD_GAIN = 2.2;       // z-gradient (~±0.15 usable) -> radians, then cl
 const clamp = (v: number, m: number) => (v > m ? m : v < -m ? -m : v);
 const deadzone = (v: number, d: number) => (Math.abs(v) <= d ? 0 : v - Math.sign(v) * d);
 
+// ---- position mapping: direct full-screen reach, scaled by swingRange (0..1) ----
+// Horizontal uses the live view width (full detection range -> full screen width). Vertical is
+// biased so a centered hand stands the puppet on the floor; raising lifts it off, lowering crumples
+// it onto the floor. Motion isn't artificially clamped — the floor is the only constraint.
+// Vertical range bottoms out where the puppet's feet rest cleanly on the floor (~cross 9.1) and
+// tops out at a high dangle (~11.5). The rigid center chain can't go slack, so dropping the cross
+// below the rest point would bury the puppet — this range keeps the rest clean. (A slack-capable
+// rope center would allow a larger range + crumpling; see README "next pass".)
+const VERT_CENTER = 10.3; // cross height at a centered hand (puppet dangles above the floor)
+const VERT_SPAN = 2.4;    // full-swing vertical travel: cross y spans VERT_CENTER ± VERT_SPAN/2
+
 // ---- control-path smoothing (LATENCY TUNING — named constants so feel can be dialed) ----
 // The raw landmark overlay has no perceptible lag, so detection is fast and low-jitter; the delay
 // the user felt was OUR conservative One Euro cutoff (which drops most at the slow marionette
@@ -69,7 +80,7 @@ const frollSin = new OneEuro(ROLL_MIN_CUTOFF, ROLL_BETA);
 const frollCos = new OneEuro(ROLL_MIN_CUTOFF, ROLL_BETA);
 const fpitch = new OneEuro(1.0, 0.006);
 const fyaw = new OneEuro(0.6, 0.004);
-const target = { x: 0, y: CONTROL_BASE_Y };
+const target = { x: 0, y: VERT_CENTER };
 const tilt = { roll: 0, pitch: 0, yaw: 0 }; // smoothed control euler angles (radians)
 let latestLandmarks: Landmark[] | null = null;
 
@@ -105,11 +116,13 @@ function readHand(now: number): void {
     // fallback = index-MCP(5)/pinky-MCP(17)) define the cross's horizontal bar. controlDrive
     // returns them already in stage space (mirrored x, y-up). See control.ts / DRIVE.
     const drive = controlDrive(hand, DRIVE);
-    const center = controlCenter(drive.left, drive.right);     // stage-space midpoint
+    const center = controlCenter(drive.left, drive.right);     // stage-space midpoint (∈ [-0.5,0.5])
     const cx = fpx.filter(center.x, now);                      // single smoothing stage
     const cy = fpy.filter(center.y, now);
-    target.x = cx * 2 * swingRange;                            // already mirrored; scale to swing
-    target.y = CONTROL_BASE_Y + cy * 1.5;                      // hand up/down -> control up/down
+    // Direct full-screen reach on both axes, scaled by swingRange (1.0 = full). Full detection
+    // range -> full view width; vertical biased to stand the puppet on the floor at a centered hand.
+    target.x = cx * renderer.worldWidth * swingRange;
+    target.y = VERT_CENTER + cy * VERT_SPAN * swingRange;
 
     // Roll: angle of the line between the two points. Smooth via sin/cos components (single stage)
     // to dodge atan2 wrap, then recombine. Negate onto Z so the "+" leans the same way the hand

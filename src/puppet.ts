@@ -31,7 +31,20 @@ const SEG_HALF = 0.62; // capsule half-height; joint-to-joint spacing = 2*SEG_HA
 const SEG_RAD = 0.05;
 export const CENTER_STRING_LEN = HEAD_SEG_COUNT * SEG_HALF * 2; // 6.2u -> 51.7% of a 12u view (> 50% required)
 
-const NOSELF = 0x00010000; // membership bit 1, filter mask 0 -> collides with nothing (no joint jitter)
+// Collision filtering (32-bit: high 16 = membership, low 16 = mask of groups it collides with).
+// Puppet parts collide with the FLOOR but not each other or the strings (no self-jitter); the
+// string segments collide with nothing; the floor collides only with the puppet parts.
+const PUPPET_GROUP = 0x00010002; // member group 0, collides with group 1 (floor)
+const STRING_GROUP = 0x00010000; // member group 0, collides with nothing (no joint jitter)
+const FLOOR_GROUP  = 0x00020001; // member group 1, collides with group 0 (puppet)
+
+// Floor geometry (world units). Its top sits just above the bottom of the 12u view, so a lowered
+// control rests the puppet on-screen instead of letting it fall away (the world constrains motion,
+// the input isn't artificially clamped).
+export const FLOOR_TOP = 0.8;
+const FLOOR_HALF_H = 0.5;
+const FLOOR_HALF_W = 50; // wide enough to span any viewport aspect
+const FLOOR_HALF_D = 1;  // z-thickness so the z-locked puppet (z=0) always overlaps the floor
 
 export interface Vec2 { x: number; y: number; }
 export interface Capsule { body: RAPIER_NS.RigidBody; half: number; rad: number; color: string; }
@@ -118,7 +131,7 @@ export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
   const limb = (cx: number, cy: number, half: number, rad: number, density: number, color: string) => {
     const body = world.createRigidBody(dyn(cx, cy));
     world.createCollider(
-      RAPIER.ColliderDesc.capsule(half, rad).setDensity(density).setCollisionGroups(NOSELF),
+      RAPIER.ColliderDesc.capsule(half, rad).setDensity(density).setCollisionGroups(PUPPET_GROUP),
       body,
     );
     parts.push({ body, half, rad, color });
@@ -134,6 +147,15 @@ export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
   // ---- control bar: kinematic, follows the palm; no collider needed (joints use local anchors) ----
   const control = world.createRigidBody(
     RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(0, CONTROL_BASE_Y, 0),
+  );
+
+  // ---- floor: static shelf at the bottom so a lowered control rests the puppet on-screen ----
+  const floorBody = world.createRigidBody(
+    RAPIER.RigidBodyDesc.fixed().setTranslation(0, FLOOR_TOP - FLOOR_HALF_H, 0),
+  );
+  world.createCollider(
+    RAPIER.ColliderDesc.cuboid(FLOOR_HALF_W, FLOOR_HALF_H, FLOOR_HALF_D).setCollisionGroups(FLOOR_GROUP),
+    floorBody,
   );
 
   // ---- torso, placed so the head chain hangs at exactly its rest length ----
@@ -187,7 +209,7 @@ export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
       const cy = top.y - (i + 0.5) * (SEG_HALF * 2);
       const seg = world.createRigidBody(dyn(top.x, cy));
       world.createCollider(
-        RAPIER.ColliderDesc.capsule(SEG_HALF, SEG_RAD).setDensity(0.4).setCollisionGroups(NOSELF),
+        RAPIER.ColliderDesc.capsule(SEG_HALF, SEG_RAD).setDensity(0.4).setCollisionGroups(STRING_GROUP),
         seg,
       );
       segs.push(seg);

@@ -1,5 +1,5 @@
 import type RAPIER_NS from "@dimforge/rapier3d-compat";
-import { WORLD_VIEW_HEIGHT, type Rig, type Vec2 } from "./puppet.ts";
+import { WORLD_VIEW_HEIGHT, FLOOR_TOP, type Rig, type Vec2 } from "./puppet.ts";
 import { HAND_CONNECTIONS, type Landmark } from "./hands.ts";
 
 // Bodies rotate only about Z, so the world rotation is a single angle.
@@ -37,6 +37,10 @@ export class Renderer {
     this.scale = this.canvas.height / WORLD_VIEW_HEIGHT;
   }
 
+  // Visible world width (units): WORLD_VIEW_HEIGHT scaled by the canvas aspect. The control's
+  // horizontal reach maps the full detection range (stage-x ∈ [-0.5,0.5]) onto this width.
+  get worldWidth(): number { return this.canvas.width / this.scale; }
+
   private sx(x: number): number { return this.canvas.width / 2 + x * this.scale; }
   private sy(y: number): number { return this.canvas.height - y * this.scale; }
   private lineTo(p: Vec2): void { this.ctx.lineTo(this.sx(p.x), this.sy(p.y)); }
@@ -61,6 +65,16 @@ export class Renderer {
   draw(rig: Rig): void {
     const { ctx } = this;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+    // floor: a ground band the puppet can rest on when the control is lowered.
+    const floorPx = this.sy(FLOOR_TOP);
+    ctx.fillStyle = "#121216";
+    ctx.fillRect(0, floorPx, this.canvas.width, this.canvas.height - floorPx);
+    ctx.strokeStyle = "#2c2c34";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, floorPx); ctx.lineTo(this.canvas.width, floorPx);
+    ctx.stroke();
 
     // The control body carries only ROLL (in-plane Z); pitch/yaw already live in the posed
     // anchor positions (rig.posedAnchors / rig.barTip). Transform a posed control-local point to

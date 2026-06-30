@@ -42,7 +42,13 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
   horizontal bar. The bar's **position = the midpoint** of those two points and its **roll = the
   angle of the line between them** — both are now **MEASURED**, replacing the old single-point
   (palm #9) translation and the synthesized roll proxy. The midpoint is smoothed by the position
-  One Euro filters and drives a kinematic Rapier **control bar** at the top of the view.
+  One Euro filters and drives a kinematic Rapier **control bar**.
+  - **Full-screen reach, both axes (direct mapping).** The full detection range (stage ∈ [-0.5,0.5])
+    maps to the full view: horizontally to the live view width (`renderer.worldWidth`), vertically
+    to a band that bottoms out with the puppet resting on the floor and tops out at a high dangle.
+    The **swing range** slider is a `0–1` *fraction of full reach* (`1.0` = whole screen). Motion
+    is **not** artificially clamped — per the design intent, in-game "foul-line" rules (later) are
+    what constrain the player, not input limits. (Vertical `VERT_CENTER/SPAN` are in `main.ts`.)
   - **Binding is data-driven** via the `DRIVE` config (`control.ts`) — the customization seam for a
     future in-app point-picker:
     - `mode: "extremes"` (**default**): each frame, pick the landmarks with the min and max
@@ -92,15 +98,23 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
 
   The four strings pose the torso — position and tilt — so you can act with intent; arms and legs
   ragdoll passively off the torso.
+- **Floor (PRD §7 deferral, reopened):** a static shelf (`FLOOR_TOP` in `puppet.ts`) sits near the
+  bottom of the view so a lowered control rests the puppet on-screen instead of dropping it away —
+  a *world* constraint, not an input clamp. Collision groups let the puppet parts hit the floor but
+  not each other or the strings. **Caveat:** the center string is a rigid chain (fixed length), so
+  it can't go slack; the clean vertical range bottoms out at "feet on the floor" (cross ≈ 9.1) — go
+  lower and the chain would bury the puppet. A larger range with crumple-on-floor needs a
+  slack-capable **rope** center (see "next pass").
 - **Hand overlay (PRD §4.2):** all 21 landmarks + `HAND_CONNECTIONS` drawn over the camera
   preview, ringed in green with a crosshair that mirrors the control-bar crosshair on stage, making
   the hand→control mapping legible at a glance. (The overlay's reference marker is a hint only; the
   control is now driven by the **two-landmark bar**, not a single point — a point-picker overlay is
   future work.)
-- **Instrumentation (PRD §4.3):** fps, hand-LOST indicator, swing-range slider, gravity slider,
-  a **tilt-range slider** (master roll/pitch/yaw multiplier; `0` = flat, control only translates)
-  with a live **roll/pitch/yaw degree readout**, a **damping slider** (how fast swings settle;
-  `0` = swings forever), and a string-length-% readout.
+- **Instrumentation (PRD §4.3):** fps, hand-LOST indicator, a **swing-range slider** (`0–1` =
+  fraction of full-screen reach, default `1.0`), gravity slider, a **tilt-range slider** (`0–1` =
+  fraction of full roll/pitch/yaw, default `1.0`; `0` = flat) with a live **roll/pitch/yaw degree
+  readout**, a **damping slider** (how fast swings settle; `0` = swings forever), and a
+  string-length-% readout.
 - **Swing damping:** every dynamic body (torso, limbs, string segments) carries linear + angular
   damping (`DEFAULT_*_DAMPING` in `puppet.ts`, default `1.0`, live via the slider / `setDamping`).
   Gravity sets the swing *frequency*, not its decay — without damping a pendulum conserves energy
@@ -172,12 +186,20 @@ Rotation + control-path tunables in `src/main.ts`:
 - The control-path One Euro filters: `fpx/fpy` (position midpoint, now at `POS_MIN_CUTOFF`),
   `frollSin/frollCos` (roll, smoothed as sin/cos components to dodge angle-wrap, at
   `ROLL_MIN_CUTOFF`), `fpitch`, and `fyaw` (z is the noisiest channel, so yaw is smoothed hardest).
-- The on-screen **tilt range** slider is a master multiplier over all three angles (live in the UI).
+- The on-screen **tilt range** slider is a master multiplier over all three angles (`0–1`, live).
+- **Position reach:** `swingRange` (`0–1`) scales full-screen reach on both axes. `VERT_CENTER` /
+  `VERT_SPAN` set the cross's vertical band (default `10.3 ± 1.2` → ~`[9.1, 11.5]`): bottom = puppet
+  resting on the floor, top = high dangle. `FLOOR_TOP` (`puppet.ts`) is the floor height.
 
 ## Notes for the next pass
 
 - **Render:** still 2D canvas (PRD §4.4 permits it; fastest for a feel test). Three.js
   migration is deferred to whenever spike-2 needs it — `three` is intentionally not a dep yet.
+- **Rope center for a bigger vertical range:** the center string is a rigid chain, so the clean
+  vertical range stops at "feet on the floor". Converting the center to a slack-capable rope
+  (rendered as a bezier, like the limbs) would let the cross drop further and the puppet crumple
+  onto the floor without the chain burying it — at the cost of the chain's segmented secondary
+  motion. Open question for the next pass.
 - The Rapier API was version-checked against the installed `@dimforge/rapier3d-compat@0.19.3`.
 - The verdict on whether this is "legible enough to act with intent" is **Scott's hand
   judgment** (PRD §6) — it gates whether spike-2 (fingers → individual string motors) proceeds.
