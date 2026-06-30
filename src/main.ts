@@ -25,8 +25,10 @@ $("damp").oninput = (e) => {
   $("dv").textContent = damping.toFixed(1);
   if (rig) setDamping(rig, damping, damping); // bodies spawn at DEFAULT, so this only runs on change
 };
-let debug = false; // overlay raw physics line segments + rope length/stretch readout
-$("dbg").onchange = (e) => { debug = (e.target as HTMLInputElement).checked; };
+// overlay raw physics line segments + rope length/stretch readout. NOTE: the checkbox id must NOT
+// be "dbg" — that collides with the MediaPipe wasm glue's global `dbg` and crashes init.
+let debug = true;
+$("debugChk").onchange = (e) => { debug = (e.target as HTMLInputElement).checked; };
 
 // string length as a fraction of the viewport (constant across resizes — see draw.ts).
 $("slen").textContent = Math.round((CENTER_STRING_LEN / WORLD_VIEW_HEIGHT) * 100).toString();
