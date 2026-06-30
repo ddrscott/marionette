@@ -20,10 +20,13 @@ export const CONTROL_BASE_Y = 11; // the control bar rides near the top of the v
 export const CONTROL_HALF_W = 1.0; // central bar: half-length (spreads the shoulder strings)
 export const CONTROL_HALF_V = 0.5; // cross bar: half-length (head tip up, lower-back tip down)
 
-// Swing damping. Gravity sets the swing FREQUENCY, not its decay — with zero damping a pendulum
-// conserves energy and swings forever. Damping bleeds velocity each step (air drag / joint
-// friction) so the puppet settles after a few oscillations. Tunable live via the damping slider.
-export const DEFAULT_LINEAR_DAMPING = 1.0;
+// Damping. LINEAR damping is velocity drag — it's also "air resistance": too much and the puppet
+// can't fall faster than terminal velocity (≈ gravity/linDamp), so it FLOATS down. At gravity 9.8 a
+// natural screen-height fall reaches ~15 u/s, so linDamp must stay ≲0.6 to avoid capping the fall.
+// We keep it low (0.4 — falls naturally, still bleeds swings over a few seconds) and let the slider
+// raise it if the residual swing is annoying. ANGULAR damping settles spin and doesn't touch the
+// fall, so it stays higher. (Zero damping = swings forever; that's the slider's bottom end.)
+export const DEFAULT_LINEAR_DAMPING = 0.4;
 export const DEFAULT_ANGULAR_DAMPING = 1.0;
 
 export const CENTER_STRING_LEN = 6.2; // head chain length -> 51.7% of a 12u view (> 50% required)

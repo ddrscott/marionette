@@ -113,16 +113,19 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
 - **Instrumentation (PRD §4.3):** fps, hand-LOST indicator, a **swing-range slider** (`0–1` =
   fraction of full-screen reach, default `1.0`), gravity slider, a **tilt-range slider** (`0–1` =
   fraction of full roll/pitch/yaw, default `1.0`; `0` = flat) with a live **roll/pitch/yaw degree
-  readout**, a **damping slider** (how fast swings settle; `0` = swings forever), a
-  a **weight slider** (puppet mass multiplier; runtime `setPuppetWeight` rescales each part's
+  readout**, a **drag slider** (linear damping / air resistance; low = falls naturally, high =
+  floats but settles fast), a **weight slider** (puppet mass multiplier; runtime `setPuppetWeight` rescales each part's
   density — heavier parts keep more tension on the chains, though they also lag more under fast
   yanks), a string-length-% readout, and a **debug: physics lines** checkbox — overlays Rapier's raw
   `world.debugRender()` segments (every chain link + joint) plus each chain's measured summed length
   vs `nominalLen` and live **stretch %** (red past 0.3%), to watch how much the chains actually give.
-- **Swing damping:** every dynamic body (torso, limbs, string segments) carries linear + angular
-  damping (`DEFAULT_*_DAMPING` in `puppet.ts`, default `1.0`, live via the slider / `setDamping`).
-  Gravity sets the swing *frequency*, not its decay — without damping a pendulum conserves energy
-  and swings forever; damping bleeds it off so the puppet settles after a few oscillations.
+- **Damping / floatiness:** every dynamic body carries linear + angular damping (`DEFAULT_*_DAMPING`
+  in `puppet.ts`). **Linear damping is air resistance** — it caps fall speed at terminal velocity
+  ≈ `gravity / linDamp`, so too much makes the puppet *float* down. At gravity 9.8 a screen-height
+  fall naturally reaches ~15 u/s, so linear damping is kept low (**0.4**, terminal ~25 → no cap →
+  natural fall) and exposed as the **drag slider**; angular damping (fixed `1.0`) settles spin
+  without touching the fall. Zero drag = swings forever (the slider's bottom); raising it trades
+  natural fall for faster settle. Gravity sets swing *frequency*, not its decay.
 
 ## Architecture
 

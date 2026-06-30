@@ -1,6 +1,6 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import { OneEuro } from "./oneEuro.ts";
-import { buildRig, poseControl, setDamping, setPuppetWeight, DEFAULT_LINEAR_DAMPING, DEFAULT_PUPPET_WEIGHT, CENTER_STRING_LEN, WORLD_VIEW_HEIGHT, type Rig } from "./puppet.ts";
+import { buildRig, poseControl, setDamping, setPuppetWeight, DEFAULT_LINEAR_DAMPING, DEFAULT_ANGULAR_DAMPING, DEFAULT_PUPPET_WEIGHT, CENTER_STRING_LEN, WORLD_VIEW_HEIGHT, type Rig } from "./puppet.ts";
 import { initHands, handPose, type Hands, type Landmark } from "./hands.ts";
 import { DRIVE, controlDrive, controlCenter, rollAngleOf } from "./control.ts";
 import { Renderer, drawHand } from "./draw.ts";
@@ -16,15 +16,16 @@ const overlayCtx = camOverlay.getContext("2d")!;
 let swingRange = 1.0; // 0..1 = fraction of full-screen reach (both axes)
 let gravityY = 9.8;
 let tiltRange = 1.0;  // 0..1 = fraction of full rotation range (roll/pitch/yaw)
-let damping = DEFAULT_LINEAR_DAMPING; // swing settle rate (applied to linear + angular)
+let drag = DEFAULT_LINEAR_DAMPING; // LINEAR damping = air-resistance/float knob (angular stays fixed)
 let weight = DEFAULT_PUPPET_WEIGHT;   // puppet mass multiplier (heavier parts keep more string tension)
 $("range").oninput = (e) => { swingRange = +(e.target as HTMLInputElement).value; $("rv").textContent = swingRange.toFixed(2); };
 $("grav").oninput = (e) => { gravityY = +(e.target as HTMLInputElement).value; $("gv").textContent = gravityY.toFixed(1); };
 $("tilt").oninput = (e) => { tiltRange = +(e.target as HTMLInputElement).value; $("tv").textContent = tiltRange.toFixed(2); };
 $("damp").oninput = (e) => {
-  damping = +(e.target as HTMLInputElement).value;
-  $("dv").textContent = damping.toFixed(1);
-  if (rig) setDamping(rig, damping, damping); // bodies spawn at DEFAULT, so this only runs on change
+  drag = +(e.target as HTMLInputElement).value;
+  $("dv").textContent = drag.toFixed(1);
+  // only LINEAR damping (the float/fall knob) tracks the slider; angular stays fixed for spin.
+  if (rig) setDamping(rig, drag, DEFAULT_ANGULAR_DAMPING);
 };
 $("weight").oninput = (e) => {
   weight = +(e.target as HTMLInputElement).value;
