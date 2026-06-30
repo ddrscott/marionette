@@ -142,6 +142,9 @@ demonstrably moves the torso.
   This is the seam for the future "customize the rig" feature: edit/add rows toward the
   British 9-string set (add hands + knees). All strings are non-rigid ropes drawn as drooping
   beziers; `slack` sets each one's `maxLength = restDist * slack`.
+- `SOLVER_ITERATIONS` (`16`) — constraint solver iterations. Ropes are meant to be inextensible,
+  but at the default (~4) they stretch ~2.7% under a hard yank (a rubberband feel); `16` drops that
+  to ~0.2% (imperceptible). Cheap here (~5 bodies). Lower = springier strings, higher = stiffer.
 - `HEAD_SLACK` (`~1.0`, near-taut weight-bearer) / `LOOSE_ROPE_SLACK` (`~1.22`, loose limbs) —
   per-string slack. Lower = tighter / more control authority; higher = droopier. Each rope exposes
   its `maxLength` so the renderer computes live slack for the bezier sag.

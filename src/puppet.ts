@@ -112,8 +112,15 @@ function posedAnchor(name: string, base: Vec2, pitch: number, yaw: number): Vec2
   return { x, y };
 }
 
+// Constraint solver iterations. The rope joints are meant to be inextensible, but at the default
+// (~4) they visibly stretch under a hard yank (~2.7%) — that overshoot-and-snap reads as a
+// rubberband. More iterations enforce the ropes more rigidly (16 → ~0.2% stretch, imperceptible).
+// Cheap here (only ~5 bodies / 4 joints).
+const SOLVER_ITERATIONS = 16;
+
 export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
   const world = new RAPIER.World({ x: 0, y: -gravityY, z: 0 });
+  world.integrationParameters.numSolverIterations = SOLVER_ITERATIONS;
   const parts: Capsule[] = [];
 
   // 2.5D plane lock on every dynamic body: free X/Y translation, no Z; rotate only about Z.
