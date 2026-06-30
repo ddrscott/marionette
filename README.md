@@ -75,6 +75,18 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
   **pass through the puppet and through each other** (no joint jitter). Lower your fingers and the
   puppet **crumples onto the floor** (rests cleanly, ~3 mm contact, no burying); raise them and it
   lifts off.
+- **Camera source + quality pickers:** two sidebar `<select>`s. **Camera** lists the available video
+  input devices (`enumerateDevices()` → `kind === "videoinput"`, by `label`; "Camera N" until labels
+  populate after the first permission grant). **Quality** is three fixed preset tiers —
+  **480p (640×480, default)**, 720p (1280×720), 1080p (1920×1080); higher = sharper but **heavier
+  detection**, so 480p is the default (fastest, matches the original hardcoded resolution). Switching
+  either **re-acquires the stream live** — `hands.useSource()` stops the old tracks, `getUserMedia`s
+  the new `deviceId` + resolution (requested as an **`ideal`** preference, never a hard constraint, so
+  a camera that can't hit the tier still opens), and swaps `video.srcObject` — **without a reload and
+  without restarting the detection worker** (the worker keeps pumping frames off the same `<video>`).
+  Both picks persist in `localStorage` (`handbattle.cam.deviceId`, `handbattle.cam.quality`) and are
+  re-applied on boot; a saved device that's gone falls back to the default gracefully. Hot-plug
+  (`devicechange`) refreshes the dropdown and re-acquires only if the active device vanished.
 - **Hand overlay:** all 21 landmarks + `HAND_CONNECTIONS` over the camera preview, with the **five
   driving fingertips ringed in their finger colours and numbered 1–5**, matching the on-stage
   control points — so the finger→part mapping reads at a glance.
@@ -204,7 +216,7 @@ never waits on inference:
 | `src/main.ts` | Loop: physics steps every frame; reads the **worker's latest** detection (re-assigns only when a new result arrives — `hands.seq`). Assigns the two hands to the two puppets by wrist screen-x, picks each hand's binding from handedness, drives each puppet's controls **by target part** (per-hand One Euro filters), and owns the sliders. |
 | `src/control.ts` | **Dependency-free** `stageX`/`stageY` (landmark → mirrored, y-up stage space). No MediaPipe import. |
 | `src/puppet.ts` | Rapier rig, split **world + puppet**: `buildWorld` makes the shared world + floor; `addPuppet(world, xOffset, binding)` adds one puppet (5 controls + 5 chain strings + torso/limbs). The `FINGERS` binding, its `mirrorBinding` L↔R helper, the `HANDEDNESS_LABEL_IS_MIRRORED` flip, and all rig constants live here. |
-| `src/hands.ts` | **Main-thread interface** to detection: owns the camera + spawns the CLASSIC detection worker, pumps frames to it (one in flight, gated to new camera frames), and exposes the **latest** per-hand `{ landmarks, handedness }`. Re-exports `HAND_CONNECTIONS` + the `Landmark` type — **no `@mediapipe` import on the main thread**. |
+| `src/hands.ts` | **Main-thread interface** to detection: owns the camera + spawns the CLASSIC detection worker, pumps frames to it (one in flight, gated to new camera frames), and exposes the **latest** per-hand `{ landmarks, handedness }`. Also owns camera **source/quality switching** — `useSource({deviceId, tier})` stops the old tracks and re-acquires the stream (quality tiers in `QUALITY_TIERS`), `listCameras()` enumerates video inputs. Re-exports `HAND_CONNECTIONS` + the `Landmark` type — **no `@mediapipe` import on the main thread**. |
 | `src/handsWorker.ts` | **CLASSIC Web Worker**, IIFE-wrapped, **no ESM import**. `importScripts` the vendored MediaPipe CJS bundle (via an `exports`/`module` shim), builds the `HandLandmarker` (VIDEO, **`numHands: 2`**, model fetched in-worker as `modelAssetBuffer`, GPU→CPU fallback), and runs `detectForVideo` on each transferred frame, posting back per-hand `{ landmarks, handedness }`. Logs each init stage. |
 | `src/handsProtocol.ts` | **Dependency-free** main↔worker message contract: the typed `WorkerInbound`/`WorkerOutbound` unions, the `Landmark`/`WorkerHand` types, and a hardcoded `HAND_CONNECTIONS` (so the main bundle never pulls in `@mediapipe`). |
 | `public/vendor/mediapipe-tasks-vision-0.10.35.js` | Vendored copy of `@mediapipe/tasks-vision`'s `vision_bundle.cjs`, served **same-origin** as `text/javascript` so the worker can `importScripts` it (the CDN serves `.cjs` as `application/node`, which the browser refuses). Re-copy + rename on version bumps. |

@@ -7,7 +7,7 @@ import {
   CENTER_STRING_LEN, WORLD_VIEW_HEIGHT, FLOOR_TOP, type Puppet, type FingerBind, type TargetName,
 } from "./puppet.ts";
 import { stageX, stageY } from "./control.ts";
-import { initHands, type Hands, type Landmark } from "./hands.ts";
+import { initHands, isQualityTier, DEFAULT_QUALITY, type Hands, type Landmark, type QualityTier } from "./hands.ts";
 import { Renderer, drawHands } from "./draw.ts";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -16,6 +16,13 @@ const video = $<HTMLVideoElement>("cam");
 const scene = $<HTMLCanvasElement>("scene");
 const camOverlay = $<HTMLCanvasElement>("camOverlay");
 const overlayCtx = camOverlay.getContext("2d")!;
+const camSel = $<HTMLSelectElement>("camSel");
+const qualSel = $<HTMLSelectElement>("qualSel");
+
+// Camera source + quality picks persist across reloads; the deviceId can vanish (unplugged camera),
+// in which case useSource() falls back to the default device gracefully.
+const LS_DEVICE = "handbattle.cam.deviceId";
+const LS_QUALITY = "handbattle.cam.quality";
 
 // ---- tunables ----
 let swingRange = 1.0; // 0..1 = fraction of full-screen reach (scales each fingertip's mapped position)
@@ -247,6 +254,48 @@ function loop(): void {
   requestAnimationFrame(loop);
 }
 
+// Repopulate the camera <select> from the live device list, reflecting the ACTIVE device. Labels
+// are empty/anonymous until the first successful getUserMedia, so this is called again post-permission.
+async function refreshCameraList(): Promise<MediaDeviceInfo[]> {
+  const cams = await hands.listCameras();
+  camSel.replaceChildren();
+  cams.forEach((d, i) => {
+    const opt = document.createElement("option");
+    opt.value = d.deviceId;
+    opt.textContent = d.label || `Camera ${i + 1}`; // fall back to "Camera N" pre-permission
+    camSel.appendChild(opt);
+  });
+  if (hands.deviceId) camSel.value = hands.deviceId;
+  return cams;
+}
+
+// Wire the two sidebar dropdowns: switch source/quality live (re-acquire the stream, no reload, no
+// worker restart) and persist each pick to localStorage. Also refresh on hot-plug.
+function wireCameraPickers(): void {
+  camSel.onchange = async () => {
+    const deviceId = camSel.value;
+    localStorage.setItem(LS_DEVICE, deviceId);
+    try { await hands.useSource({ deviceId }); } catch (e) { console.error("[cam] source switch failed", e); }
+    await refreshCameraList();
+  };
+  qualSel.onchange = async () => {
+    if (!isQualityTier(qualSel.value)) return;
+    const tier = qualSel.value;
+    localStorage.setItem(LS_QUALITY, tier);
+    try { await hands.useSource({ tier }); } catch (e) { console.error("[cam] quality switch failed", e); }
+  };
+  // Hot-plug: refresh the dropdown; only re-acquire if the ACTIVE device vanished (else leave the
+  // live stream alone). enumerateDevices fires this on plug/unplug.
+  navigator.mediaDevices.addEventListener("devicechange", async () => {
+    const active = hands.deviceId;
+    const cams = await refreshCameraList();
+    if (active && !cams.some((c) => c.deviceId === active)) {
+      try { await hands.useSource({ deviceId: null }); } catch (e) { console.error("[cam] re-acquire after unplug failed", e); }
+      await refreshCameraList();
+    }
+  });
+}
+
 (async function main() {
   try {
     await RAPIER.init();
@@ -259,7 +308,17 @@ function loop(): void {
     ];
     for (const p of puppets) setPuppetWeight(p, weight);
     renderer = new Renderer(scene);
-    hands = await initHands(video);
+
+    // Re-apply the saved camera source + quality on boot (falls back gracefully if the saved device
+    // is gone). Then populate the dropdowns — labels are only available AFTER this first permission
+    // grant — and wire live switching + persistence.
+    const savedQuality = localStorage.getItem(LS_QUALITY);
+    const tier: QualityTier = isQualityTier(savedQuality) ? savedQuality : DEFAULT_QUALITY;
+    hands = await initHands(video, { deviceId: localStorage.getItem(LS_DEVICE), tier });
+    qualSel.value = hands.tier;
+    await refreshCameraList();
+    wireCameraPickers();
+
     sizeOverlay();
     addEventListener("resize", onResize);
     $("boot").remove();

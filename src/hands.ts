@@ -21,6 +21,22 @@ export interface HandPose {
   yaw: number;   // z(MCP5) - z(MCP17): index vs pinky depth
 }
 
+// Quality = FIXED preset tiers (not device-capability enumeration, not an FPS picker). Higher tiers
+// are sharper but heavier to detect — 480p is the default because it's the fastest detection and
+// matches the app's original hardcoded 640×480. Resolution is requested as a PREFERENCE (ideal),
+// never a hard constraint, so a camera that can't hit the tier still works.
+export type QualityTier = "480p" | "720p" | "1080p";
+export const DEFAULT_QUALITY: QualityTier = "480p";
+export const QUALITY_TIERS: Record<QualityTier, { width: number; height: number; label: string }> = {
+  "480p":  { width: 640,  height: 480,  label: "480p (640×480) — fastest detection" },
+  "720p":  { width: 1280, height: 720,  label: "720p (1280×720)" },
+  "1080p": { width: 1920, height: 1080, label: "1080p (1920×1080) — sharpest, heaviest" },
+};
+export const isQualityTier = (v: unknown): v is QualityTier =>
+  v === "480p" || v === "720p" || v === "1080p";
+
+export interface SourceOpts { deviceId?: string | null; tier?: QualityTier }
+
 const FINGERTIPS = [8, 12, 16, 20]; // index, middle, ring, pinky tips
 const KNUCKLES = [5, 9, 13, 17];    // their MCP knuckles
 const meanY = (lm: Landmark[], idx: number[]): number =>
@@ -48,6 +64,13 @@ export class Hands {
   private inFlight = false;        // at most ONE frame in the worker at a time (no backlog/lag)
   private lastVideoTime = -1;      // only ship a frame when the camera advanced
 
+  // Current camera source. `stream` is the live MediaStream (its tracks are stopped before each
+  // re-acquire); `deviceId`/`tier` reflect what's ACTUALLY playing (a saved-but-gone device falls
+  // back, so these can differ from what was requested).
+  private stream: MediaStream | null = null;
+  deviceId: string | null = null;
+  tier: QualityTier = DEFAULT_QUALITY;
+
   private constructor(readonly video: HTMLVideoElement, private readonly worker: Worker) {
     worker.addEventListener("message", (ev: MessageEvent): void => {
       const msg = ev.data as WorkerOutbound;
@@ -73,7 +96,7 @@ export class Hands {
   // app boots as soon as the camera is up; the worker signals `ready` asynchronously and pump()
   // stays a no-op until then. (A worker that never readies leaves the puppets hanging with a
   // console error — never a silent boot hang.)
-  static async create(video: HTMLVideoElement): Promise<Hands> {
+  static async create(video: HTMLVideoElement, opts: SourceOpts = {}): Promise<Hands> {
     // `{ type: "classic" }` is LOAD-BEARING: MediaPipe's wasm loader uses importScripts(), which
     // only exists in a classic worker (a module worker dies with "ModuleFactory not set"). The
     // worker itself has no ESM import (it importScripts() the CJS bundle), so this same classic
@@ -85,11 +108,63 @@ export class Hands {
     // camera first, that `ready` (and any early error) would fire before any listener existed
     // and be lost, leaving `ready` stuck false and pump() never shipping a frame.
     const hands = new Hands(video, worker);
-
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
-    video.srcObject = stream;
-    await video.play();
+    await hands.useSource(opts);
     return hands;
+  }
+
+  // Enumerate the available video input devices (for the source picker). Labels are empty/anonymous
+  // until the first successful getUserMedia, so callers re-list after the initial permission grant.
+  async listCameras(): Promise<MediaDeviceInfo[]> {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices.filter((d) => d.kind === "videoinput");
+  }
+
+  private stopStream(): void {
+    if (this.stream) {
+      // stop the OLD tracks before re-acquiring so the device is released (avoids the camera
+      // leaking / "could not start video source / camera in use" on a switch).
+      this.stream.getTracks().forEach((t) => t.stop());
+      this.stream = null;
+    }
+  }
+
+  // (Re)acquire the camera stream with a chosen device + quality, live. Stops the previous tracks,
+  // getUserMedia with the new deviceId + resolution, then swaps `video.srcObject` and re-plays.
+  // It does NOT touch the detection worker: the worker keeps pumping frames off the SAME <video>
+  // element via pump(), which now points at the new stream — no worker restart, no seq reset.
+  async useSource(opts: SourceOpts = {}): Promise<void> {
+    if (opts.deviceId !== undefined) this.deviceId = opts.deviceId;
+    if (opts.tier !== undefined && isQualityTier(opts.tier)) this.tier = opts.tier;
+    const { width, height } = QUALITY_TIERS[this.tier] ?? QUALITY_TIERS[DEFAULT_QUALITY];
+
+    // Resolution + device are PREFERENCES (`ideal`), not hard constraints: a camera that can't do
+    // the tier still opens at its nearest mode, and a saved deviceId that's gone falls back to the
+    // default device instead of throwing (graceful — no crash).
+    const videoConstraints: MediaTrackConstraints = { width: { ideal: width }, height: { ideal: height } };
+    if (this.deviceId) videoConstraints.deviceId = { ideal: this.deviceId };
+
+    this.stopStream();
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints });
+    } catch (e) {
+      // belt-and-suspenders: `ideal` shouldn't over-constrain, but if a UA still rejects, retry
+      // with no resolution constraint (keep the device as a hint).
+      if (e instanceof DOMException && e.name === "OverconstrainedError") {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: this.deviceId ? { deviceId: { ideal: this.deviceId } } : true,
+        });
+      } else throw e;
+    }
+
+    this.stream = stream;
+    // Reflect what we ACTUALLY got — the active device may differ from what was requested (saved id
+    // gone, or the UA picked another). Keeps deviceId honest for persistence + the dropdown.
+    const settings = stream.getVideoTracks()[0]?.getSettings();
+    if (settings?.deviceId) this.deviceId = settings.deviceId;
+
+    this.video.srcObject = stream;
+    await this.video.play();
   }
 
   // Call once per rAF. If the worker is ready, the camera has a fresh frame, and the worker is
@@ -112,5 +187,7 @@ export class Hands {
   }
 }
 
-// Backwards-compatible entry point: spawn the worker + start the camera.
-export const initHands = (video: HTMLVideoElement): Promise<Hands> => Hands.create(video);
+// Backwards-compatible entry point: spawn the worker + start the camera (optionally with a saved
+// device + quality re-applied on boot).
+export const initHands = (video: HTMLVideoElement, opts: SourceOpts = {}): Promise<Hands> =>
+  Hands.create(video, opts);

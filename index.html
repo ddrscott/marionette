@@ -29,6 +29,19 @@
       <div class="stat"><span>head string</span><b><span id="slen">&ndash;</span>% of view</b></div>
 
       <div class="row">
+        <label for="camSel">camera <span class="dim">(video source)</span></label>
+        <select id="camSel"></select>
+      </div>
+      <div class="row">
+        <label for="qualSel">quality <span class="dim">(higher = sharper but heavier detection)</span></label>
+        <select id="qualSel">
+          <option value="480p">480p (640&times;480) &mdash; fastest detection</option>
+          <option value="720p">720p (1280&times;720)</option>
+          <option value="1080p">1080p (1920&times;1080) &mdash; sharpest, heaviest</option>
+        </select>
+      </div>
+
+      <div class="row">
         <label>swing range <span class="val" id="rv">1.00</span> <span class="dim">(screen reach; 1.0 = full width/height)</span></label>
         <input id="range" type="range" min="0" max="1" step="0.05" value="1.0" />
       </div>
