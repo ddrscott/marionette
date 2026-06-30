@@ -5,6 +5,10 @@ numbered control points follow your fingers, and each pulls one body part. **Two
 camera** — two marionettes stand side by side and each hand drives the puppet on its side. It
 answers *can a person puppeteer a hanging physics body with intent, or is it chaos?*
 
+A puppet starts **inert** — you bring it alive with a calibration ritual: raise a hand over its
+outline and hold still while the strings attach (the
+[attach ritual](#bringing-a-puppet-alive-the-attach-ritual)).
+
 > Evolved past spike-1: the rigid control bar (the "+") and its roll/pitch/yaw posing are **gone**,
 > replaced by per-finger string control (the PRD §7 spike-2 increment, pulled forward). A floor was
 > added, then a second player. Combat, netcode, and the puppet editor are still out of scope.
@@ -68,8 +72,12 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
   closed loop the foldable chains accommodate. Rendered as smooth curves colour-coded per finger.
   - **Chains, not ropes:** rigid spherical-joint links make each string inextensible (no
     rubberband), but the hinges let it **fold** — it goes slack by draping and never snap-bounces.
-    Length = the straight-line span at the rest pose (`STRING_SLACK = 1.0`), so strings are straight
-    when the hand is level. The head string spans **51.7% of viewport** (`CENTER_STRING_LEN`).
+  - **Length is captured at attach, not fixed:** a chain is built taut (`STRING_SLACK = 1.0`) to the
+    straight-line span between the **captured fingertip and its part at attach time**, so the rest
+    lengths match *your* arched hand — spread your fingers wider and the outer strings come out longer
+    (see [the attach ritual](#bringing-a-puppet-alive-the-attach-ritual)). The puppet's home geometry
+    sets the scale: the torso sits `CENTER_STRING_LEN` below the control row, so the head string spans
+    **~51.7% of viewport**.
   - **Stiffness caveat:** a 10-link series chain of light links needs many solver passes
     (`SOLVER_ITERATIONS = 48`) to stay rigid; even so it stretches ~1–2% under normal motion (more
     under an aggressive yank, since the control is One-Euro-smoothed and never teleports). Watch it
@@ -86,9 +94,12 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
   **480p (640×480, default)**, 720p (1280×720), 1080p (1920×1080); higher = sharper but **heavier
   detection**, so 480p is the default (fastest, matches the original hardcoded resolution). Switching
   either **re-acquires the stream live** — `hands.useSource()` stops the old tracks, `getUserMedia`s
-  the new `deviceId` + resolution (requested as an **`ideal`** preference, never a hard constraint, so
-  a camera that can't hit the tier still opens), and swaps `video.srcObject` — **without a reload and
-  without restarting the detection worker** (the worker keeps pumping frames off the same `<video>`).
+  the new device + resolution, and swaps `video.srcObject` — **without a reload and without restarting
+  the detection worker** (the worker keeps pumping frames off the same `<video>`). The **`deviceId` is
+  an `exact` constraint** (a bare/`ideal` deviceId is treated as optional and silently falls back to
+  the system-default camera — the switch would do nothing); **resolution stays `ideal`** so a camera
+  that can't hit the tier still opens at its nearest mode. An unavailable device (saved id unplugged /
+  in use) throws and falls back to the default, clearing the dead id.
   Both picks persist in `localStorage` (`handbattle.cam.deviceId`, `handbattle.cam.quality`) and are
   re-applied on boot; a saved device that's gone falls back to the default gracefully. Hot-plug
   (`devicechange`) refreshes the dropdown and re-acquires only if the active device vanished.
@@ -118,6 +129,34 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
   puppet parts**, so cranking it calms the chains (settle ~5–8 s) *without* re-floating the fall. Low =
   floppy, high = stiff but the strings start to lag the control (sluggish). The drag slider now affects
   only the puppet parts; this one only the string segments.
+
+## Bringing a puppet alive (the attach ritual)
+
+A puppet doesn't come alive on its own — it sits **inert at its neutral scene-setup pose** until you
+"start the engine" with a calibration ritual. Each side runs its own state machine (in `main.ts`), so
+one raised hand brings one puppet alive while the other keeps waiting:
+
+**`WAITING → STEADYING → ATTACHING → RUNNING`**
+
+- **WAITING / STEADYING** — a grey hand **outline** (`public/hand-left.svg`, tinted `#808080`,
+  mirrored for the right side) is drawn **above** the puppet, top third, ~30% of screen height. Raise
+  a hand and your **live fingertip points** appear (coloured + numbered) so you can line them up with
+  the outline. Hold still — a progress bar fills over **`HOLD_MS` (0.7 s)**; drift a fingertip more
+  than **`STEADY_MARGIN`** and the hold restarts.
+- **ATTACHING** — the held pose is **captured** and the five strings snap on **one at a time**
+  (**`ATTACH_STRING_MS` = 0.2 s** each, head first), while the body is held crisp at its neutral pose.
+  Each string is **built to the captured part→fingertip distance**, so the rest lengths match *your*
+  arched hand. Move a fingertip more than **`ATTACH_MARGIN`** before it finishes and the attach
+  **aborts** back to the prompt.
+- **RUNNING** — normal puppeteering (the [control scheme](#what-it-does): smoothdamp + sliders).
+- **Reset** — a hand gone from the camera for **`GRACE_MS` (0.5 s)** cuts the strings and snaps the
+  puppet back to its neutral home pose, prompt and all. Brief detection gaps ride through.
+
+This is why strings are **not** built in `addPuppet`: `attachStringForSlot` creates each chain at
+attach time (capturing the arch), `detachAllStrings` removes them on reset, and `reposePuppet` resets
+the body to its neutral home pose (per-part home offsets, upright). The two sides are fully
+independent — raise one hand for a one-puppet game, or both (each attaches when its own hand is
+steady).
 
 ## Two players & handedness
 
@@ -220,22 +259,24 @@ never waits on inference:
 
 | File | Responsibility |
 |---|---|
-| `src/main.ts` | Loop: physics steps every frame; reads the **worker's latest** detection (re-assigns only when a new result arrives — `hands.seq`). Assigns the two hands to the two puppets by wrist screen-x, picks each hand's binding from handedness, drives each puppet's controls **by target part** (per-hand One Euro filters), and owns the sliders. |
+| `src/main.ts` | Loop: physics steps every frame; reads the **worker's latest** detection (re-assigns only when a new result arrives — `hands.seq`). Assigns the two hands to the two puppets by wrist screen-x, picks each hand's binding from handedness, runs each puppet's **attach-ritual state machine** (`waiting→steadying→attaching→running`), drives a RUNNING puppet's controls **by target part** (per-hand One Euro + smoothdamp), and owns the sliders. |
 | `src/control.ts` | **Dependency-free** `stageX`/`stageY` (landmark → mirrored, y-up stage space; optional `m` play-margin rescales by `1/(1−2m)` around centre, default `0` = no inset). No MediaPipe import. |
-| `src/puppet.ts` | Rapier rig, split **world + puppet**: `buildWorld` makes the shared world + floor; `addPuppet(world, xOffset, binding)` adds one puppet (5 controls + 5 chain strings + torso/limbs). The `FINGERS` binding, its `mirrorBinding` L↔R helper, the `HANDEDNESS_LABEL_IS_MIRRORED` flip, and all rig constants live here. |
+| `src/puppet.ts` | Rapier rig, split **world + puppet**: `buildWorld` makes the shared world + floor; `addPuppet(world, xOffset, binding)` adds one puppet (5 controls + torso/limbs) — **strings are built later by the attach ritual**, not here. `attachStringForSlot` / `detachAllStrings` build & cut chains capturing the held arch; `reposePuppet` resets the body to its neutral home pose. The `FINGERS` binding, `mirrorBinding`, the `HANDEDNESS_LABEL_IS_MIRRORED` flip, and all rig constants live here. |
 | `src/hands.ts` | **Main-thread interface** to detection: owns the camera + spawns the CLASSIC detection worker, pumps frames to it (one in flight, gated to new camera frames), and exposes the **latest** per-hand `{ landmarks, handedness }`. Also owns camera **source/quality switching** — `useSource({deviceId, tier})` stops the old tracks and re-acquires the stream (quality tiers in `QUALITY_TIERS`), `listCameras()` enumerates video inputs. Re-exports `HAND_CONNECTIONS` + the `Landmark` type — **no `@mediapipe` import on the main thread**. |
 | `src/handsWorker.ts` | **CLASSIC Web Worker**, IIFE-wrapped, **no ESM import**. `importScripts` the vendored MediaPipe CJS bundle (via an `exports`/`module` shim), builds the `HandLandmarker` (VIDEO, **`numHands: 2`**, model fetched in-worker as `modelAssetBuffer`, GPU→CPU fallback), and runs `detectForVideo` on each transferred frame, posting back per-hand `{ landmarks, handedness }`. Logs each init stage. |
 | `src/handsProtocol.ts` | **Dependency-free** main↔worker message contract: the typed `WorkerInbound`/`WorkerOutbound` unions, the `Landmark`/`WorkerHand` types, and a hardcoded `HAND_CONNECTIONS` (so the main bundle never pulls in `@mediapipe`). |
 | `public/vendor/mediapipe-tasks-vision-0.10.35.js` | Vendored copy of `@mediapipe/tasks-vision`'s `vision_bundle.cjs`, served **same-origin** as `text/javascript` so the worker can `importScripts` it (the CDN serves `.cjs` as `application/node`, which the browser refuses). Re-copy + rename on version bumps. |
 | `vite.config.ts` | Sets `worker.format = "iife"` so the **built** worker chunk is a classic script (matches the dev `{ type: "classic" }` spawn). |
-| `src/draw.ts` | 2D-canvas renderer (`clear()` + per-puppet `drawPuppet()`, adaptive scale, finger-coloured strings + control points) + both-hands landmark overlay (`drawHands`) + physics-debug overlay. |
+| `src/draw.ts` | 2D-canvas renderer (`clear()` + per-puppet `drawPuppet()`, adaptive scale, finger-coloured strings + control points) + the attach-ritual `drawPrompt()` (the `#808080`-tinted hand outline above each puppet) and `drawFingerPoints()` (live calibration points) + both-hands landmark overlay (`drawHands`) + physics-debug overlay. |
+| `public/hand-left.svg` | The attach-ritual prompt art (a left hand). Re-tinted to `#808080` on an offscreen canvas at load and mirrored for the right side. |
 | `src/oneEuro.ts` | One Euro filter, ported verbatim from the validated dot test. |
 | `puppet-spike-1.html` | Original single-file spike, kept for reference. |
 
 **2.5D plane lock:** every dynamic body uses `enabledTranslations(true,true,false)` +
 `enabledRotations(false,false,true)`, so it stays on the z=0 plane. The control points are kinematic
-(driven directly). Verified headlessly on the **two-puppet** world (100 chain segments + 2 sets of
-closed loops): driving both puppets' controls through an aggressive sweep+spread keeps
+(driven directly). Verified headlessly on the **two-puppet** world **with both puppets attached**
+(100 chain segments + 2 sets of closed loops — at scene setup, before the attach ritual, there are no
+strings): driving both puppets' controls through an aggressive sweep+spread keeps
 `max |z| == 0`, `max |coord| ≈ 9.94` (no explosion), no NaN, and lowering both hands crumples each
 puppet to rest cleanly on the shared floor (lowest point ≈ `0.797` vs `FLOOR_TOP 0.8` — ~3 mm
 contact). The mirrored binding geometry is also asserted: ordering each hand's fingers left→right by
@@ -256,8 +297,8 @@ screen position yields part sides `[-1,-1,0,1,1]` (non-decreasing) for **both** 
 - `SOLVER_ITERATIONS` (`48`) — a 10-link series chain of light links needs many passes to stay rigid
   (and the 5-string rig adds closed loops). 48 holds ~1–2% stretch at normal speed; it plateaus past
   ~48 (residual is series-compliance, not iteration count).
-- `STRING_SLACK` (`1.0`) — chain length = `restDist * slack`. `1.0` = exactly the straight-line span,
-  so strings are straight at the rest pose; `>1` adds fold room.
+- `STRING_SLACK` (`1.0`) — chain length = `restDist * slack`, where `restDist` is the captured
+  fingertip→part span **at attach time**. `1.0` = exactly that span (taut); `>1` adds fold room.
 - `DEFAULT_LINEAR_DAMPING` (`0.4`, the **drag** slider) / `DEFAULT_ANGULAR_DAMPING` (`1.0`, fixed) —
   linear damping is air resistance and caps fall speed (`terminal ≈ gravity/linDamp`); kept low so
   the puppet falls naturally. Angular settles spin without touching the fall.
@@ -283,6 +324,12 @@ Control-path tunables in `src/main.ts`:
 - `smoothTime` (`0.01`, the **smoothing** slider, seconds) — the SmoothDamp control spring's
   time-to-target. Bridges the sub-60 detection rate so controls glide instead of teleporting (no joint
   whip); `0` = snap (old behavior), higher = smoother but laggier.
+- **Attach-ritual constants** (see [the attach ritual](#bringing-a-puppet-alive-the-attach-ritual)):
+  `HOLD_MS` (`700`) — how long to hold still over the outline to attach; `STEADY_MARGIN` (`0.5`, world
+  units) — how far a fingertip may wander and still count as "still"; `ATTACH_STRING_MS` (`200`) — per
+  string in the snap-on animation; `ATTACH_MARGIN` (`0.8`) — move more than this mid-attach and it
+  aborts; `GRACE_MS` (`500`) — a hand absent this long detaches + resets; `ATTACH_ORDER`
+  (`[2,0,4,1,3]`) — slot order strings attach in (head first, then hands, then feet).
 
 ## Notes for the next pass
 
