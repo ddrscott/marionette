@@ -4,7 +4,7 @@ import {
   buildWorld, addPuppet, setDamping, setPuppetWeight,
   FINGERTIPS, bindingForHandedness, PUPPET_X_OFFSET, RIGHT_HAND_BINDING, LEFT_HAND_BINDING,
   DEFAULT_LINEAR_DAMPING, DEFAULT_ANGULAR_DAMPING, DEFAULT_PUPPET_WEIGHT,
-  CENTER_STRING_LEN, WORLD_VIEW_HEIGHT, type Puppet, type FingerBind, type TargetName,
+  CENTER_STRING_LEN, WORLD_VIEW_HEIGHT, FLOOR_TOP, type Puppet, type FingerBind, type TargetName,
 } from "./puppet.ts";
 import { stageX, stageY } from "./control.ts";
 import { initHands, type Hands, type Landmark } from "./hands.ts";
@@ -98,7 +98,9 @@ function readFingerPositions(h: HandState, landmarks: Landmark[], now: number): 
     const fx = h.ffx[j].filter(stageX(lm), now); // stage space: mirrored x, y-up; ∈ [-0.5, 0.5]
     const fy = h.ffy[j].filter(stageY(lm), now);
     h.pos[j].x = fx * renderer.worldWidth * swingRange;
-    h.pos[j].y = VERT_CENTER + fy * VERT_SPAN * swingRange;
+    // clamp bottom only: control point rests at the floor surface instead of sinking below it
+    // (top/left/right remain free — Y above the view and X past the edges are allowed)
+    h.pos[j].y = Math.max(FLOOR_TOP, VERT_CENTER + fy * VERT_SPAN * swingRange);
   }
 }
 
