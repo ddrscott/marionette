@@ -42,10 +42,12 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
   Rapier **control bar** at the top of the view.
 - **Hand orientation → control roll / pitch / yaw:** `handPose()` (in `hands.ts`) reads three
   decoupled proxies from the landmarks — **roll** from the in-plane wrist(0)→middle-MCP(9) vector
-  (smoothed as sin/cos components to dodge angle-wrap), **pitch** from the longitudinal z-gradient
-  (MCP9 vs wrist), **yaw** from the lateral z-gradient (index-MCP vs pinky-MCP). Each gets its
-  **own** One Euro smoothing (roll light, pitch/yaw heavy — z is the noisiest channel); the §2
-  position defaults are untouched. `poseControl()` then re-poses the bar:
+  (smoothed as sin/cos components to dodge angle-wrap), **pitch** from the in-image **finger-drop**
+  (mean fingertip y vs mean knuckle y, normalized by hand scale — read like the hand's angle "from
+  the side", no depth, so it's steady), **yaw** from the lateral z-gradient (index-MCP vs
+  pinky-MCP). Each gets its **own** One Euro smoothing (roll/pitch light, yaw heavy — z is the
+  noisiest channel); the §2 position defaults are untouched. Pitch's neutral is grip-dependent, so
+  `PITCH_NEUTRAL` zeroes the resting reading. `poseControl()` then re-poses the bar:
   - **Roll** is a real in-plane **Z rotation** of the kinematic body — one shoulder anchor rises,
     the other drops, and the torso **leans through the strings** (genuine physics).
   - **Pitch & yaw are simulated orthographically, in-plane.** Rotating the control body *out* of
@@ -60,8 +62,9 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
   The string model mirrors a real marionette's load distribution:
   - **Center / head string = taut.** It bears the puppet's weight, so it hangs essentially
     straight. It's a chain of 5 light segment bodies (spherical joints): under the torso load it
-    draws ~straight (rendered as the segment polyline, so it still shows its natural secondary
-    pendulum swing), reads unambiguously as a string at **51.7% of viewport height**, and holds
+    draws ~straight while still showing its natural secondary pendulum swing. The renderer strokes
+    it as a **smooth curve through the chain nodes** (quadratic midpoint smoothing) so it reads as
+    one continuous string, not 5 visible segments. It spans **51.7% of viewport height** and holds
     that fraction on resize (the renderer maps a *fixed world height* to the canvas, so any
     world-unit length is a constant fraction of pixels).
   - **Limb strings = loose.** The two shoulders and the lower back carry little load, so their
@@ -121,7 +124,10 @@ demonstrably moves the torso.
 Rotation tunables in `src/main.ts`:
 
 - `ROLL_MAX` / `PITCH_MAX` / `YAW_MAX` — per-axis angle caps (roll widest at ±25°; pitch/yaw ±15°).
-- `ZGRAD_GAIN` / `ZGRAD_DEADZONE` — map the noisy MediaPipe z-gradients to pitch/yaw, with a small
+- `PITCH_NEUTRAL` / `PITCH_DEADZONE` / `PITCH_GAIN` — map the in-image finger-drop to pitch.
+  `PITCH_NEUTRAL` is the resting drop ratio treated as 0° (hold a relaxed hand, read the r/p/y
+  readout, set it to zero out); `PITCH_GAIN` scales drop→radians; the dead-zone ignores wobble.
+- `ZGRAD_GAIN` / `ZGRAD_DEADZONE` — map the noisy MediaPipe z-gradient to **yaw**, with a small
   dead-zone so a flat palm reads as neutral.
 - The four rotation One Euro filters (`frollX/Y`, `fpitch`, `fyaw`) — their own smoothing, separate
   from the validated position filters (`fpx/fpy`, which stay at `1.5 / 0.01`).

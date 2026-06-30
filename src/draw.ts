@@ -42,6 +42,22 @@ export class Renderer {
   private lineTo(p: Vec2): void { this.ctx.lineTo(this.sx(p.x), this.sy(p.y)); }
   private moveTo(p: Vec2): void { this.ctx.moveTo(this.sx(p.x), this.sy(p.y)); }
 
+  // Stroke a smooth curve through world-space points (quadratics with midpoints as on-curve
+  // joins, original points as controls). Endpoints are hit exactly; interior kinks are rounded
+  // off — used so the segmented center chain reads as one continuous string.
+  private smoothPath(pts: Vec2[]): void {
+    const { ctx } = this;
+    this.moveTo(pts[0]);
+    if (pts.length < 3) { for (let i = 1; i < pts.length; i++) this.lineTo(pts[i]); return; }
+    let i = 1;
+    for (; i < pts.length - 2; i++) {
+      const mx = (pts[i].x + pts[i + 1].x) / 2;
+      const my = (pts[i].y + pts[i + 1].y) / 2;
+      ctx.quadraticCurveTo(this.sx(pts[i].x), this.sy(pts[i].y), this.sx(mx), this.sy(my));
+    }
+    ctx.quadraticCurveTo(this.sx(pts[i].x), this.sy(pts[i].y), this.sx(pts[i + 1].x), this.sy(pts[i + 1].y));
+  }
+
   draw(rig: Rig): void {
     const { ctx } = this;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
@@ -74,12 +90,15 @@ export class Renderer {
       const top = controlPt(rig.posedAnchors[i]); // posed (foreshortened) attach point
       const end = localToWorld(s.body, s.bodyAnchor);
       if (s.kind === "chain") {
+        // taut center string: draw a smooth curve through the chain nodes so it reads as one
+        // continuous string, not 5 visible segments.
+        const pts: Vec2[] = [top];
+        for (const seg of s.segs) { const c = seg.translation(); pts.push({ x: c.x, y: c.y }); }
+        pts.push(end);
         ctx.strokeStyle = "#c9c9d2";
         ctx.lineWidth = 2;
         ctx.beginPath();
-        this.moveTo(top);
-        for (const seg of s.segs) { const c = seg.translation(); this.lineTo({ x: c.x, y: c.y }); }
-        this.lineTo(end);
+        this.smoothPath(pts);
         ctx.stroke();
       } else {
         // loose limb rope: bend it into a smooth bezier whose sag tracks the LIVE slack

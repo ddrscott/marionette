@@ -25,9 +25,15 @@ $("slen").textContent = Math.round((CENTER_STRING_LEN / WORLD_VIEW_HEIGHT) * 100
 // ---- control-rotation limits + mapping (PRD §2: deliberate/slow, modest angles) ----
 const DEG = Math.PI / 180;
 const ROLL_MAX = 25 * DEG;  // in-plane lean — fully visible, so it gets the widest range
-const PITCH_MAX = 15 * DEG; // out-of-plane nod (foreshortens the cross-bar vertically)
+const PITCH_MAX = 15 * DEG; // nod (now from in-image finger-drop, see hands.ts)
 const YAW_MAX = 15 * DEG;   // out-of-plane turn (foreshortens the horizontal bar)
-const ZGRAD_DEADZONE = 0.015; // ignore tiny z-jitter around a flat palm
+// Pitch from the finger-drop ratio (no depth). Its neutral is grip-dependent, so it's a knob:
+// hold a relaxed hand, read the pitch in the r/p/y readout, and set PITCH_NEUTRAL to zero it.
+const PITCH_NEUTRAL = 0.0;    // resting finger-drop ratio treated as 0° pitch
+const PITCH_DEADZONE = 0.05;  // ignore small finger-drop wobble
+const PITCH_GAIN = 0.8;       // drop ratio -> radians, then clamped to PITCH_MAX
+// Yaw still rides the z-gradient (index vs pinky depth).
+const ZGRAD_DEADZONE = 0.015; // ignore tiny z-jitter
 const ZGRAD_GAIN = 2.2;       // z-gradient (~±0.15 usable) -> radians, then clamped to the max
 const clamp = (v: number, m: number) => (v > m ? m : v < -m ? -m : v);
 const deadzone = (v: number, d: number) => (Math.abs(v) <= d ? 0 : v - Math.sign(v) * d);
@@ -36,11 +42,11 @@ const deadzone = (v: number, d: number) => (Math.abs(v) <= d ? 0 : v - Math.sign
 const fpx = new OneEuro();
 const fpy = new OneEuro();
 // New rotation signals get their OWN smoothing — the §2 position defaults (1.5 / 0.01) are
-// deliberately NOT reused. Roll is a clean in-plane signal (light smoothing); pitch/yaw ride the
-// noisy z channel and are smoothed hard (low cutoff).
+// deliberately NOT reused. Roll and pitch are clean in-plane signals (lighter smoothing); yaw
+// rides the noisy z channel and is smoothed hard (low cutoff).
 const frollX = new OneEuro(1.2, 0.008);
 const frollY = new OneEuro(1.2, 0.008);
-const fpitch = new OneEuro(0.6, 0.004);
+const fpitch = new OneEuro(1.0, 0.006);
 const fyaw = new OneEuro(0.6, 0.004);
 const target = { x: 0, y: CONTROL_BASE_Y };
 const tilt = { roll: 0, pitch: 0, yaw: 0 }; // smoothed control euler angles (radians)
@@ -87,10 +93,11 @@ function readHand(now: number): void {
     const ry = frollY.filter(pose.rollY, now);
     const rollAngle = Math.atan2(rx, ry); // 0 when the hand points straight up
     tilt.roll = clamp(-rollAngle, ROLL_MAX) * tiltRange;
-    // Pitch / yaw: heavily-smoothed z-gradients, dead-zoned and clamped to modest cones.
-    const pz = deadzone(fpitch.filter(pose.pitch, now), ZGRAD_DEADZONE);
+    // Pitch: in-image finger-drop (no depth), de-neutralized, dead-zoned, clamped.
+    const pz = deadzone(fpitch.filter(pose.pitch, now) - PITCH_NEUTRAL, PITCH_DEADZONE);
+    tilt.pitch = clamp(pz * PITCH_GAIN, PITCH_MAX) * tiltRange;
+    // Yaw: heavily-smoothed z-gradient, dead-zoned and clamped to a modest cone.
     const yz = deadzone(fyaw.filter(pose.yaw, now), ZGRAD_DEADZONE);
-    tilt.pitch = clamp(pz * ZGRAD_GAIN, PITCH_MAX) * tiltRange;
     tilt.yaw = clamp(yz * ZGRAD_GAIN, YAW_MAX) * tiltRange;
 
     $("tilts").textContent =

@@ -21,18 +21,29 @@ export type Landmark = NormalizedLandmark;
 export interface HandPose {
   rollX: number; // stage-space (mirrored, +x = screen-right) wrist->MCP9 x-component
   rollY: number; // stage-space (+y = screen-up) wrist->MCP9 y-component
-  pitch: number; // z(MCP9) - z(wrist): >0 tips one way, <0 the other
+  pitch: number; // in-image finger DROP: mean(fingertip.y) - mean(knuckle.y), scale-normalized
   yaw: number;   // z(MCP5) - z(MCP17): index vs pinky depth
 }
+
+const FINGERTIPS = [8, 12, 16, 20]; // index, middle, ring, pinky tips
+const KNUCKLES = [5, 9, 13, 17];    // their MCP knuckles
+const meanY = (lm: Landmark[], idx: number[]): number =>
+  idx.reduce((s, i) => s + lm[i].y, 0) / idx.length;
 
 export function handPose(lm: Landmark[]): HandPose {
   const wrist = lm[0], mcp9 = lm[9], mcp5 = lm[5], mcp17 = lm[17];
   // Match the stage frame used for translation in main.ts: X is mirrored (selfie), Y points up.
   // Only differences matter here, so the sign flip alone carries the mapping (no offset needed).
+  //
+  // Pitch is read "from the side" WITHOUT depth (per the user's choice): how far the fingertips
+  // sit below the knuckle row in the image (image y is DOWN, so dropped fingers => +pitch).
+  // Normalized by hand scale (wrist->MCP9 length) so it's invariant to hand size / distance.
+  // Tradeoff: shares the image-Y axis with roll, so a strong roll bleeds a little into pitch.
+  const handScale = Math.hypot(mcp9.x - wrist.x, mcp9.y - wrist.y) || 1e-3;
   return {
     rollX: -(mcp9.x - wrist.x),
     rollY: -(mcp9.y - wrist.y),
-    pitch: mcp9.z - wrist.z,
+    pitch: (meanY(lm, FINGERTIPS) - meanY(lm, KNUCKLES)) / handScale,
     yaw: mcp5.z - mcp17.z,
   };
 }
