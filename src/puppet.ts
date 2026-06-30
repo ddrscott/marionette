@@ -63,6 +63,7 @@ export interface PuppetString {
   name: string;
   control: RAPIER_NS.RigidBody; // the kinematic finger control point — the string's top
   body: RAPIER_NS.RigidBody;    // the part the string ends on
+  target: TargetName;           // which part — so a hand can drive a control BY TARGET (handedness)
   bodyAnchor: Vec2;             // body-local
   segs: RAPIER_NS.RigidBody[];  // the chain links, control-side -> body-side
   nominalLen: number;           // total chain length (its inextensible limit)
@@ -71,6 +72,13 @@ export interface PuppetString {
 // Finger → part bindings. Fingers 1..5 = thumb..pinky (MediaPipe fingertip landmarks 4/8/12/16/20).
 // This is the seam for the future puppet editor — re-point any finger at any part here.
 export interface FingerBind { name: string; landmark: number; target: TargetName; bodyAnchor: Vec2; }
+
+// The fingertip landmark per finger slot (0..4 = thumb..pinky), in FINGERS order.
+export const FINGERTIPS = [4, 8, 12, 16, 20];
+
+// This is the RIGHT-hand binding: in the selfie-mirrored view a right hand's thumb sits screen-LEFT,
+// so the thumb drives the screen-LEFT part (lArm) and the pinky the screen-RIGHT part (rArm) — no
+// crossing. The left-hand binding is the L↔R mirror of this (see mirrorBinding / LEFT_HAND_BINDING).
 export const FINGERS: FingerBind[] = [
   { name: "1 thumb→L.hand",  landmark: 4,  target: "lArm",  bodyAnchor: { x: 0, y: -0.4 } },
   { name: "2 index→L.foot",  landmark: 8,  target: "lLeg",  bodyAnchor: { x: 0, y: -0.45 } },
@@ -79,17 +87,76 @@ export const FINGERS: FingerBind[] = [
   { name: "5 pinky→R.hand",  landmark: 20, target: "rArm",  bodyAnchor: { x: 0, y: -0.4 } },
 ];
 
-export interface Rig {
-  world: RAPIER_NS.World;
-  controls: RAPIER_NS.RigidBody[]; // 5 finger control points (aligned with FINGERS / strings)
-  parts: Capsule[];                // torso + limbs
-  torso: RAPIER_NS.RigidBody;
-  strings: PuppetString[];         // 5 finger strings
+// L↔R mirror of a binding: swap each part's left/right side (head/torso stays), keep the landmark
+// order. Used to build the LEFT-hand binding so the OTHER hand also never crosses its strings.
+const MIRRORED_TARGET: Record<TargetName, TargetName> = {
+  torso: "torso", lArm: "rArm", rArm: "lArm", lLeg: "rLeg", rLeg: "lLeg",
+};
+const swapLR = (s: string): string => s.replace(/[LR]\./g, (m) => (m[0] === "L" ? "R." : "L."));
+export function mirrorBinding(binding: FingerBind[]): FingerBind[] {
+  return binding.map((f) => ({
+    name: swapLR(f.name),
+    landmark: f.landmark,
+    target: MIRRORED_TARGET[f.target],
+    bodyAnchor: { x: -f.bodyAnchor.x, y: f.bodyAnchor.y },
+  }));
 }
 
-export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
+export const RIGHT_HAND_BINDING = FINGERS;            // thumb screen-left → screen-left part
+export const LEFT_HAND_BINDING = mirrorBinding(FINGERS); // thumb screen-right → screen-right part
+
+// --- THE FLIPPABLE HANDEDNESS CONSTANT ---
+// MediaPipe reports handedness from the UNMIRRORED camera image (`categoryName` "Left"/"Right"), but
+// our preview + stage are selfie-MIRRORED, so the label as the user sees it is flipped: a physically
+// RIGHT hand is usually labelled "Left". With this `true` we INVERT the label before picking a
+// binding, which is the best guess for a mirrored selfie view. If on a live webcam the two hands come
+// out with CROSSED strings, flip this to `false`.
+export const HANDEDNESS_LABEL_IS_MIRRORED = true;
+
+// Choose the no-crossing binding for a detected hand from its MediaPipe handedness label.
+export function bindingForHandedness(categoryName: string): FingerBind[] {
+  const physical = HANDEDNESS_LABEL_IS_MIRRORED
+    ? categoryName === "Left" ? "Right" : "Left"
+    : categoryName;
+  return physical === "Right" ? RIGHT_HAND_BINDING : LEFT_HAND_BINDING;
+}
+
+// Puppets sit side by side at ±this x-offset in the shared world.
+export const PUPPET_X_OFFSET = 3;
+
+export interface Puppet {
+  controls: RAPIER_NS.RigidBody[]; // 5 finger control points (aligned with `binding` / `strings`)
+  parts: Capsule[];                // torso + limbs
+  torso: RAPIER_NS.RigidBody;
+  strings: PuppetString[];         // 5 finger strings (each carries its target part)
+  binding: FingerBind[];           // the binding this puppet was built with
+  xOffset: number;
+}
+
+// Create the shared world + floor ONCE. Each puppet is then added via addPuppet at an x-offset.
+export function buildWorld(RAPIER: typeof RAPIER_NS, gravityY: number): RAPIER_NS.World {
   const world = new RAPIER.World({ x: 0, y: -gravityY, z: 0 });
   world.integrationParameters.numSolverIterations = SOLVER_ITERATIONS;
+
+  // ---- floor: a shared static shelf spanning both puppets ----
+  const floorBody = world.createRigidBody(
+    RAPIER.RigidBodyDesc.fixed().setTranslation(0, FLOOR_TOP - FLOOR_HALF_H, 0),
+  );
+  world.createCollider(
+    RAPIER.ColliderDesc.cuboid(FLOOR_HALF_W, FLOOR_HALF_H, FLOOR_HALF_D).setCollisionGroups(FLOOR_GROUP),
+    floorBody,
+  );
+  return world;
+}
+
+// Add one puppet (torso + limbs + 5 controls + 5 chain strings) to the shared world at xOffset.
+// Physics is identical to the original single-puppet rig — only the x position is shifted.
+export function addPuppet(
+  RAPIER: typeof RAPIER_NS,
+  world: RAPIER_NS.World,
+  xOffset: number,
+  binding: FingerBind[],
+): Puppet {
   const parts: Capsule[] = [];
 
   // 2.5D plane lock on every dynamic body. zRot pre-rotates (aligns chain segments along a string).
@@ -118,25 +185,17 @@ export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
       b1, b2, true,
     );
 
-  // ---- floor ----
-  const floorBody = world.createRigidBody(
-    RAPIER.RigidBodyDesc.fixed().setTranslation(0, FLOOR_TOP - FLOOR_HALF_H, 0),
-  );
-  world.createCollider(
-    RAPIER.ColliderDesc.cuboid(FLOOR_HALF_W, FLOOR_HALF_H, FLOOR_HALF_D).setCollisionGroups(FLOOR_GROUP),
-    floorBody,
-  );
-
-  // ---- torso + limbs ----
+  // ---- torso + limbs (shifted by xOffset; spherical anchors are body-local, so unchanged) ----
+  const X = xOffset;
   const torsoHalf = 0.5;
   const torsoCY = CONTROL_BASE_Y - CENTER_STRING_LEN - torsoHalf; // 4.3
-  const torso = limb(0, torsoCY, torsoHalf, 0.25, 1.4, "#e8e8e8");
-  const lArm = limb(-0.3, torsoCY - 0.1, 0.4, 0.12, 1.0, "#39d98a");
-  const rArm = limb( 0.3, torsoCY - 0.1, 0.4, 0.12, 1.0, "#39d98a");
+  const torso = limb(X + 0, torsoCY, torsoHalf, 0.25, 1.4, "#e8e8e8");
+  const lArm = limb(X - 0.3, torsoCY - 0.1, 0.4, 0.12, 1.0, "#39d98a");
+  const rArm = limb(X + 0.3, torsoCY - 0.1, 0.4, 0.12, 1.0, "#39d98a");
   spherical(torso, { x: -0.3, y: 0.3 }, lArm, { x: 0, y: 0.4 });
   spherical(torso, { x:  0.3, y: 0.3 }, rArm, { x: 0, y: 0.4 });
-  const lLeg = limb(-0.15, torsoCY - 0.95, 0.45, 0.14, 1.1, "#5b8cff");
-  const rLeg = limb( 0.15, torsoCY - 0.95, 0.45, 0.14, 1.1, "#5b8cff");
+  const lLeg = limb(X - 0.15, torsoCY - 0.95, 0.45, 0.14, 1.1, "#5b8cff");
+  const rLeg = limb(X + 0.15, torsoCY - 0.95, 0.45, 0.14, 1.1, "#5b8cff");
   spherical(torso, { x: -0.15, y: -0.5 }, lLeg, { x: 0, y: 0.45 });
   spherical(torso, { x:  0.15, y: -0.5 }, rLeg, { x: 0, y: 0.45 });
 
@@ -171,9 +230,9 @@ export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
     return { segs, nominalLen };
   };
 
-  // ---- one finger control point + string per FINGERS row ----
+  // ---- one finger control point + string per binding row ----
   const controls: RAPIER_NS.RigidBody[] = [];
-  const strings: PuppetString[] = FINGERS.map((f) => {
+  const strings: PuppetString[] = binding.map((f) => {
     const body = targets[f.target];
     const bt = body.translation();
     // default control point: straight above the part's anchor at the top -> string vertical at spawn.
@@ -182,22 +241,22 @@ export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
     );
     controls.push(control);
     const { segs, nominalLen } = buildChain(control, body, f.bodyAnchor);
-    return { name: f.name, control, body, bodyAnchor: f.bodyAnchor, segs, nominalLen };
+    return { name: f.name, control, body, target: f.target, bodyAnchor: f.bodyAnchor, segs, nominalLen };
   });
 
-  return { world, controls, parts, torso, strings };
+  return { controls, parts, torso, strings, binding, xOffset };
 }
 
 // Set swing damping on every dynamic body (parts + string segments). Controls are kinematic (excluded).
-export function setDamping(rig: Rig, linear: number, angular: number): void {
+export function setDamping(puppet: Puppet, linear: number, angular: number): void {
   const apply = (b: RAPIER_NS.RigidBody) => { b.setLinearDamping(linear); b.setAngularDamping(angular); };
-  for (const p of rig.parts) apply(p.body);
-  for (const s of rig.strings) for (const seg of s.segs) apply(seg);
+  for (const p of puppet.parts) apply(p.body);
+  for (const s of puppet.strings) for (const seg of s.segs) apply(seg);
 }
 
 // Scale puppet mass at runtime (part density = baseDensity * weight). Segments stay light on purpose.
-export function setPuppetWeight(rig: Rig, weight: number): void {
-  for (const p of rig.parts) {
+export function setPuppetWeight(puppet: Puppet, weight: number): void {
+  for (const p of puppet.parts) {
     p.collider.setDensity(p.baseDensity * weight);
     p.body.recomputeMassPropertiesFromColliders();
   }

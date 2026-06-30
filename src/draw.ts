@@ -1,5 +1,5 @@
 import type RAPIER_NS from "@dimforge/rapier3d-compat";
-import { WORLD_VIEW_HEIGHT, FLOOR_TOP, FINGERS, type Rig, type Vec2 } from "./puppet.ts";
+import { WORLD_VIEW_HEIGHT, FLOOR_TOP, FINGERTIPS, type Puppet, type PuppetString, type Vec2 } from "./puppet.ts";
 import { HAND_CONNECTIONS, type Landmark } from "./hands.ts";
 
 // One distinct colour per finger/string (1 thumb .. 5 pinky), shared by the strings, the control-point
@@ -56,7 +56,8 @@ export class Renderer {
     ctx.quadraticCurveTo(this.sx(pts[i].x), this.sy(pts[i].y), this.sx(pts[i + 1].x), this.sy(pts[i + 1].y));
   }
 
-  draw(rig: Rig): void {
+  // Clear the canvas + draw the shared floor band. Call once per frame, before drawPuppet().
+  clear(): void {
     const { ctx } = this;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
@@ -69,6 +70,11 @@ export class Renderer {
     ctx.beginPath();
     ctx.moveTo(0, floorPx); ctx.lineTo(this.canvas.width, floorPx);
     ctx.stroke();
+  }
+
+  // Draw one puppet (strings + capsules + control discs). Does NOT clear — call clear() first.
+  drawPuppet(rig: Puppet): void {
+    const { ctx } = this;
 
     // (1) strings — each a smooth curve from its finger control point through the chain to the part.
     ctx.lineCap = "round";
@@ -125,10 +131,10 @@ export class Renderer {
 
   // Debug overlay: raw physics segments (every chain link + joint) + each chain's measured summed
   // length vs nominalLen (stretch%). For a rigid chain stretch stays ~0 however it folds.
-  drawDebug(rig: Rig): void {
+  drawDebug(world: RAPIER_NS.World, strings: PuppetString[]): void {
     const { ctx } = this;
 
-    const buf = rig.world.debugRender();
+    const buf = world.debugRender();
     const v = buf.vertices, col = buf.colors;
     ctx.lineWidth = 1;
     for (let i = 0; i + 5 < v.length; i += 6) {
@@ -147,7 +153,7 @@ export class Renderer {
     ctx.fillStyle = "#39d98a";
     ctx.fillText("physics chains — len / nominal  (stretch%)", 8, ty); ty += 15;
     let maxStretch = -Infinity;
-    rig.strings.forEach((s) => {
+    strings.forEach((s) => {
       const top = s.control.translation();
       const nodes: Vec2[] = [{ x: top.x, y: top.y }];
       for (const seg of s.segs) { const c = seg.translation(); nodes.push({ x: c.x, y: c.y }); }
@@ -167,15 +173,21 @@ export class Renderer {
 }
 
 // ---- hand-landmark overlay (drawn already-mirrored to match the flipped preview) ----
-export function drawHand(
+// Draws BOTH players' hands. The 5 driving fingertips are ringed by finger slot (thumb..pinky) in
+// the matching finger colour — independent of binding, so it reads the same for either hand.
+export function drawHands(
   ctx: CanvasRenderingContext2D,
   w: number,
   h: number,
-  landmarks: Landmark[] | null,
+  hands: (Landmark[] | null)[],
 ): void {
   ctx.clearRect(0, 0, w, h);
-  if (!landmarks) return;
+  for (const landmarks of hands) {
+    if (landmarks) drawOneHand(ctx, w, h, landmarks);
+  }
+}
 
+function drawOneHand(ctx: CanvasRenderingContext2D, w: number, h: number, landmarks: Landmark[]): void {
   const X = (lm: Landmark) => (1 - lm.x) * w; // mirror X to match the selfie preview
   const Y = (lm: Landmark) => lm.y * h;
 
@@ -198,12 +210,12 @@ export function drawHand(
     ctx.fill();
   }
 
-  // the 5 control fingertips — ringed in their finger colour with the finger number.
+  // the 5 driving fingertips — ringed in their finger colour with the finger number.
   ctx.font = "bold 10px ui-monospace, monospace";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  FINGERS.forEach((f, i) => {
-    const lm = landmarks[f.landmark];
+  FINGERTIPS.forEach((landmark, i) => {
+    const lm = landmarks[landmark];
     const cx = X(lm), cy = Y(lm);
     ctx.fillStyle = FINGER_COLORS[i % FINGER_COLORS.length];
     ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI * 2); ctx.fill();

@@ -48,7 +48,7 @@ export async function initHands(video: HTMLVideoElement): Promise<Hands> {
   const landmarker = await HandLandmarker.createFromOptions(vision, {
     baseOptions: { modelAssetPath: MODEL_PATH, delegate: "GPU" },
     runningMode: "VIDEO",
-    numHands: 1,
+    numHands: 2, // two players, one camera — each detected hand drives its own puppet
   });
   const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
   video.srcObject = stream;

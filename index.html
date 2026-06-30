@@ -24,7 +24,8 @@
     <aside>
       <h1>Marionette Spike 2</h1>
       <div class="stat"><span>fps</span><b><span id="fps">&ndash;</span></b></div>
-      <div class="stat"><span>hand</span><b id="drop">LOST</b></div>
+      <div class="stat"><span>hands</span><b><span id="hcount">0</span> / 2</b></div>
+      <div class="stat"><span>tracking</span><b id="drop">LOST</b></div>
       <div class="stat"><span>head string</span><b><span id="slen">&ndash;</span>% of view</b></div>
 
       <div class="row">
@@ -48,16 +49,17 @@
       </div>
 
       <div class="note">
-        No control bar anymore — <b>each fingertip is a string</b>. The five numbered control
-        points follow your fingers and each pulls one body part:<br><br>
-        <b>1</b> thumb &rarr; left hand &middot; <b>2</b> index &rarr; left foot &middot;
-        <b>3</b> middle &rarr; head &middot; <b>4</b> ring &rarr; right foot &middot;
-        <b>5</b> pinky &rarr; right hand.<br><br>
+        <b>Two players, one camera.</b> Two marionettes stand side by side; each hand drives the
+        puppet on its side of the screen. <b>Each fingertip is a string</b> — five numbered control
+        points follow your fingers and each pulls one body part.<br><br>
+        The binding mirrors per hand so the strings never cross: for the hand on the right of screen,
+        <b>1</b> thumb &rarr; screen-left hand &middot; <b>2</b> index &rarr; screen-left foot &middot;
+        <b>3</b> middle &rarr; head &middot; <b>4</b> ring &rarr; screen-right foot &middot;
+        <b>5</b> pinky &rarr; screen-right hand; the other hand's binding is the left/right mirror.<br><br>
         Move your whole hand to move the puppet; <b>spread or curl</b> individual fingers to work
-        the limbs. The camera overlay (bottom-right) rings the five driving fingertips in matching
-        colours.<br><br>
-        The question: with one string per finger, can you puppeteer with <b>intent</b> — or is the
-        double-indirection too much? (Finger&rarr;part bindings will be editable later.)
+        the limbs. Keep each hand on its own half. The camera overlay (bottom-right) rings both
+        hands' driving fingertips in matching colours. The weight + drag sliders apply to both
+        puppets.
       </div>
     </aside>
   </div>
