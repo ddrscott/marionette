@@ -22,7 +22,15 @@ export const CENTER_STRING_LEN = 6.2; // head string length -> 51.7% of a 12u vi
 // chain length is exactly the straight-line span, so the string is straight/taut at the rest pose.
 const SEG_COUNT = 10;
 const SEG_RAD = 0.04;
-const SEG_DENSITY = 0.3; // light, so a chain can't overpower the puppet it hangs
+// Heavy links so the strings read as CHAINS (hang/swing with visible weight), not floaty thread.
+// Sized for the DEFAULT puppet weight (4×): each string's total mass (~0.08) stays well under the
+// lightest limb it pulls — the arm (~0.17 at weight 4) — so the puppet drives the strings, never the
+// reverse (no "tail wags dog" limb whipping). Heavier links also improve the link↔puppet mass ratio,
+// which REDUCES chain stretch, and fall faster under the linear drag (less floaty).
+// CAVEAT: puppet weight is a live slider (1–12). At very low weight the limbs get light enough that a
+// heavy string can approach/exceed limb mass (e.g. at weight 1 the arm is ~0.043 < string ~0.08),
+// where wagging can creep in. The default (4×) is the design point; this is intentional.
+const SEG_DENSITY = 2.0;
 const STRING_SLACK = 1.0;
 
 // Collision filtering (high 16 = membership, low 16 = mask of groups it collides with).

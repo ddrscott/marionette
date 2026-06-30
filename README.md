@@ -105,9 +105,13 @@ keeps `max |z| == 0` with no NaN/explosion, and the puppet rests cleanly on the 
 - `FINGERS` — the finger→part bindings as data rows (`name`, `landmark`, `target` body, `bodyAnchor`).
   This is the seam for the puppet editor: re-point any finger at any part (`torso`/`lArm`/`rArm`/
   `lLeg`/`rLeg`). Each row becomes one kinematic control point + a chain string.
-- `SEG_COUNT` (`10`) / `SEG_RAD` / `SEG_DENSITY` — links per string, and how thin/light they are.
-  More links fold finer but stretch more; lighter links don't overpower the puppet but stretch more
-  (mass ratio).
+- `SEG_COUNT` (`10`) / `SEG_RAD` / `SEG_DENSITY` (`2.0`) — links per string, and how thin/heavy they
+  are. More links fold finer but stretch more. `SEG_DENSITY` `2.0` makes the strings read as **heavy
+  chains** (each string ≈ `0.08` total mass) while staying **below the lightest limb it pulls** at the
+  default `4×` weight (arm ≈ `0.17`), so the puppet drives the strings, not the reverse. Heavier links
+  also *improve* the link↔puppet mass ratio, so stretch went **down** (≈ `6.8% → 5.6%` under the same
+  hard sweep). Caveat: the weight slider goes as low as `1×`, where the arm (≈ `0.04`) drops under the
+  string mass and wagging can creep in — the constant is sized for the `4×` default on purpose.
 - `SOLVER_ITERATIONS` (`48`) — a 10-link series chain of light links needs many passes to stay rigid
   (and the 5-string rig adds closed loops). 48 holds ~1–2% stretch at normal speed; it plateaus past
   ~48 (residual is series-compliance, not iteration count).
