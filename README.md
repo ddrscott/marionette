@@ -99,7 +99,12 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
   future work.)
 - **Instrumentation (PRD §4.3):** fps, hand-LOST indicator, swing-range slider, gravity slider,
   a **tilt-range slider** (master roll/pitch/yaw multiplier; `0` = flat, control only translates)
-  with a live **roll/pitch/yaw degree readout**, and a string-length-% readout.
+  with a live **roll/pitch/yaw degree readout**, a **damping slider** (how fast swings settle;
+  `0` = swings forever), and a string-length-% readout.
+- **Swing damping:** every dynamic body (torso, limbs, string segments) carries linear + angular
+  damping (`DEFAULT_*_DAMPING` in `puppet.ts`, default `1.0`, live via the slider / `setDamping`).
+  Gravity sets the swing *frequency*, not its decay — without damping a pendulum conserves energy
+  and swings forever; damping bleeds it off so the puppet settles after a few oscillations.
 
 ## Architecture
 

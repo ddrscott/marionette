@@ -1,6 +1,6 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import { OneEuro } from "./oneEuro.ts";
-import { buildRig, poseControl, CENTER_STRING_LEN, CONTROL_BASE_Y, WORLD_VIEW_HEIGHT, type Rig } from "./puppet.ts";
+import { buildRig, poseControl, setDamping, DEFAULT_LINEAR_DAMPING, CENTER_STRING_LEN, CONTROL_BASE_Y, WORLD_VIEW_HEIGHT, type Rig } from "./puppet.ts";
 import { initHands, handPose, type Hands, type Landmark } from "./hands.ts";
 import { DRIVE, controlDrive, controlCenter, rollAngleOf } from "./control.ts";
 import { Renderer, drawHand } from "./draw.ts";
@@ -16,9 +16,15 @@ const overlayCtx = camOverlay.getContext("2d")!;
 let swingRange = 1.6;
 let gravityY = 9.8;
 let tiltRange = 1.0; // master multiplier on roll/pitch/yaw (0 = no tilt, control only translates)
+let damping = DEFAULT_LINEAR_DAMPING; // swing settle rate (applied to linear + angular)
 $("range").oninput = (e) => { swingRange = +(e.target as HTMLInputElement).value; $("rv").textContent = swingRange.toFixed(1); };
 $("grav").oninput = (e) => { gravityY = +(e.target as HTMLInputElement).value; $("gv").textContent = gravityY.toFixed(1); };
 $("tilt").oninput = (e) => { tiltRange = +(e.target as HTMLInputElement).value; $("tv").textContent = tiltRange.toFixed(1); };
+$("damp").oninput = (e) => {
+  damping = +(e.target as HTMLInputElement).value;
+  $("dv").textContent = damping.toFixed(1);
+  if (rig) setDamping(rig, damping, damping); // bodies spawn at DEFAULT, so this only runs on change
+};
 
 // string length as a fraction of the viewport (constant across resizes — see draw.ts).
 $("slen").textContent = Math.round((CENTER_STRING_LEN / WORLD_VIEW_HEIGHT) * 100).toString();

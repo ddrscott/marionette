@@ -20,6 +20,12 @@ export const CONTROL_BASE_Y = 11; // the control bar rides near the top of the v
 export const CONTROL_HALF_W = 1.0; // central bar: half-length (spreads the shoulder strings)
 export const CONTROL_HALF_V = 0.5; // cross bar: half-length (head tip up, lower-back tip down)
 
+// Swing damping. Gravity sets the swing FREQUENCY, not its decay — with zero damping a pendulum
+// conserves energy and swings forever. Damping bleeds velocity each step (air drag / joint
+// friction) so the puppet settles after a few oscillations. Tunable live via the damping slider.
+export const DEFAULT_LINEAR_DAMPING = 1.0;
+export const DEFAULT_ANGULAR_DAMPING = 1.0;
+
 const HEAD_SEG_COUNT = 5;
 const SEG_HALF = 0.62; // capsule half-height; joint-to-joint spacing = 2*SEG_HALF
 const SEG_RAD = 0.05;
@@ -100,11 +106,14 @@ export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
   const parts: Capsule[] = [];
 
   // 2.5D plane lock on every dynamic body: free X/Y translation, no Z; rotate only about Z.
+  // Damping is set so swings settle instead of oscillating forever (see DEFAULT_*_DAMPING).
   const dyn = (cx: number, cy: number) =>
     RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(cx, cy, 0)
       .enabledTranslations(true, true, false)
-      .enabledRotations(false, false, true);
+      .enabledRotations(false, false, true)
+      .setLinearDamping(DEFAULT_LINEAR_DAMPING)
+      .setAngularDamping(DEFAULT_ANGULAR_DAMPING);
 
   const limb = (cx: number, cy: number, half: number, rad: number, density: number, color: string) => {
     const body = world.createRigidBody(dyn(cx, cy));
@@ -210,4 +219,12 @@ export function poseControl(rig: Rig, roll: number, pitch: number, yaw: number):
     rig.posedAnchors[i] = a;
   }
   rig.barTip = { x: 0, y: CONTROL_HALF_V * Math.cos(pitch) }; // decorative top of the "+"
+}
+
+// Set swing damping on every dynamic body (torso, limbs, string segments) at runtime — driven by
+// the damping slider. The kinematic control is excluded (it's positioned directly, not simulated).
+export function setDamping(rig: Rig, linear: number, angular: number): void {
+  const apply = (b: RAPIER_NS.RigidBody) => { b.setLinearDamping(linear); b.setAngularDamping(angular); };
+  for (const p of rig.parts) apply(p.body);
+  for (const s of rig.strings) for (const seg of s.segs) apply(seg);
 }
