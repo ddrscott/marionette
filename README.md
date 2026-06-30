@@ -111,8 +111,11 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
 - **Instrumentation (PRD §4.3):** fps, hand-LOST indicator, a **swing-range slider** (`0–1` =
   fraction of full-screen reach, default `1.0`), gravity slider, a **tilt-range slider** (`0–1` =
   fraction of full roll/pitch/yaw, default `1.0`; `0` = flat) with a live **roll/pitch/yaw degree
-  readout**, a **damping slider** (how fast swings settle; `0` = swings forever), and a
-  string-length-% readout.
+  readout**, a **damping slider** (how fast swings settle; `0` = swings forever), a
+  string-length-% readout, and a **debug: physics lines** checkbox — overlays Rapier's raw
+  `world.debugRender()` segments (collider outlines + joint anchors) plus each rope's true
+  anchor-to-anchor `len / maxLength` and live **stretch %** (red past the cap), to verify how
+  elastic the strings actually are (head rope peaks ~+0.2% under a hard yank at `SOLVER_ITERATIONS=16`).
 - **Swing damping:** every dynamic body (torso, limbs, string segments) carries linear + angular
   damping (`DEFAULT_*_DAMPING` in `puppet.ts`, default `1.0`, live via the slider / `setDamping`).
   Gravity sets the swing *frequency*, not its decay — without damping a pendulum conserves energy

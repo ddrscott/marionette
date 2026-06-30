@@ -122,7 +122,7 @@ export class Renderer {
 
     // (4) the horizontal control bar ("+") on top — drawn from the SAME posed anchors as the
     // strings, so it foreshortens with pitch/yaw and the strings stay welded to the bar tips.
-    // strings index order (see ATTACH): 0 head, 1 lShoulder, 2 rShoulder, 3 lowerBack.
+    // strings index order (see ATTACH): 0 head, 1 lHand, 2 rHand, 3 lowerBack.
     ctx.strokeStyle = "#caa46a";
     ctx.lineWidth = 6;
     ctx.beginPath();
@@ -134,6 +134,62 @@ export class Renderer {
     ctx.beginPath();
     ctx.arc(this.sx(ct.x), this.sy(ct.y), 4, 0, Math.PI * 2);
     ctx.fill();
+  }
+
+  // Debug overlay: the RAW line segments straight from the physics engine (collider outlines +
+  // impulse-joint anchors) plus, for each rope, its TRUE anchor-to-anchor length vs its maxLength —
+  // so you can read exactly how much (if at all) a string stretches past its cap. A rope drawn red
+  // and a +stretch% mean the solver is letting it exceed maxLength (elastic); green = at/under cap.
+  drawDebug(rig: Rig): void {
+    const { ctx } = this;
+
+    // (a) Rapier's own debug geometry: flat vertex buffer (xyz per point, 2 points per line) with
+    // an RGBA color per vertex. Project x,y (z is ~0 in our locked plane) and stroke each segment.
+    const buf = rig.world.debugRender();
+    const v = buf.vertices, col = buf.colors;
+    ctx.lineWidth = 1;
+    for (let i = 0; i + 5 < v.length; i += 6) {
+      const ci = (i / 3) * 4; // color of the segment's first vertex
+      const r = Math.round(col[ci] * 255), g = Math.round(col[ci + 1] * 255), b = Math.round(col[ci + 2] * 255);
+      ctx.strokeStyle = `rgba(${r},${g},${b},${col[ci + 3] * 0.7})`;
+      ctx.beginPath();
+      ctx.moveTo(this.sx(v[i]), this.sy(v[i + 1]));
+      ctx.lineTo(this.sx(v[i + 3]), this.sy(v[i + 4]));
+      ctx.stroke();
+    }
+
+    // (b) true rope constraint segments + length readout. anchor1 world = control transform (roll)
+    // applied to the posed control-local anchor; anchor2 world = body transform applied to its anchor.
+    const ct = rig.control.translation();
+    const cr = rig.control.rotation();
+    const cz = 2 * Math.atan2(cr.z, cr.w), cc = Math.cos(cz), cs = Math.sin(cz);
+    const a1 = (a: Vec2): Vec2 => ({ x: ct.x + a.x * cc - a.y * cs, y: ct.y + a.x * cs + a.y * cc });
+
+    ctx.font = "11px ui-monospace, monospace";
+    ctx.textBaseline = "top";
+    let ty = 8;
+    ctx.fillStyle = "#39d98a";
+    ctx.fillText("physics ropes — len / max  (stretch%)", 8, ty); ty += 15;
+    let maxStretch = -Infinity;
+    rig.strings.forEach((s, i) => {
+      const p1 = a1(rig.posedAnchors[i]);
+      const p2 = localToWorld(s.body, s.bodyAnchor);
+      const len = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+      const stretch = ((len - s.maxLength) / s.maxLength) * 100;
+      maxStretch = Math.max(maxStretch, stretch);
+      const hot = stretch > 0.3;
+      ctx.strokeStyle = hot ? "rgba(255,92,92,0.95)" : "rgba(57,217,138,0.7)";
+      ctx.lineWidth = hot ? 2 : 1;
+      ctx.beginPath();
+      ctx.moveTo(this.sx(p1.x), this.sy(p1.y));
+      ctx.lineTo(this.sx(p2.x), this.sy(p2.y));
+      ctx.stroke();
+      ctx.fillStyle = hot ? "#ff5c5c" : "#9a9aa2";
+      ctx.fillText(`${s.name.padEnd(10)} ${len.toFixed(3)} / ${s.maxLength.toFixed(2)}  ${stretch >= 0 ? "+" : ""}${stretch.toFixed(2)}%`, 8, ty);
+      ty += 13;
+    });
+    ctx.fillStyle = maxStretch > 0.3 ? "#ff5c5c" : "#39d98a";
+    ctx.fillText(`max stretch: ${maxStretch >= 0 ? "+" : ""}${maxStretch.toFixed(2)}%`, 8, ty + 2);
   }
 }
 

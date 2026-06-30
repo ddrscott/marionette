@@ -25,6 +25,8 @@ $("damp").oninput = (e) => {
   $("dv").textContent = damping.toFixed(1);
   if (rig) setDamping(rig, damping, damping); // bodies spawn at DEFAULT, so this only runs on change
 };
+let debug = false; // overlay raw physics line segments + rope length/stretch readout
+$("dbg").onchange = (e) => { debug = (e.target as HTMLInputElement).checked; };
 
 // string length as a fraction of the viewport (constant across resizes — see draw.ts).
 $("slen").textContent = Math.round((CENTER_STRING_LEN / WORLD_VIEW_HEIGHT) * 100).toString();
@@ -166,6 +168,7 @@ function loop(): void {
   rig.world.step();
 
   renderer.draw(rig);
+  if (debug) renderer.drawDebug(rig);
   drawHand(overlayCtx, camOverlay.width, camOverlay.height, latestLandmarks);
 
   requestAnimationFrame(loop);
