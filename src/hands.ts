@@ -137,23 +137,25 @@ export class Hands {
     if (opts.tier !== undefined && isQualityTier(opts.tier)) this.tier = opts.tier;
     const { width, height } = QUALITY_TIERS[this.tier] ?? QUALITY_TIERS[DEFAULT_QUALITY];
 
-    // Resolution + device are PREFERENCES (`ideal`), not hard constraints: a camera that can't do
-    // the tier still opens at its nearest mode, and a saved deviceId that's gone falls back to the
-    // default device instead of throwing (graceful — no crash).
+    // Device is an EXACT constraint when one is chosen — a bare/`ideal` deviceId is treated by the UA
+    // as OPTIONAL, so it silently falls back to the system-default camera (the switch "does nothing"
+    // and a saved pick never restores). Resolution stays `ideal` so a camera that can't hit the tier
+    // still opens at its nearest mode (only the device must be honored exactly).
     const videoConstraints: MediaTrackConstraints = { width: { ideal: width }, height: { ideal: height } };
-    if (this.deviceId) videoConstraints.deviceId = { ideal: this.deviceId };
+    if (this.deviceId) videoConstraints.deviceId = { exact: this.deviceId };
 
     this.stopStream();
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints });
     } catch (e) {
-      // belt-and-suspenders: `ideal` shouldn't over-constrain, but if a UA still rejects, retry
-      // with no resolution constraint (keep the device as a hint).
-      if (e instanceof DOMException && e.name === "OverconstrainedError") {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: this.deviceId ? { deviceId: { ideal: this.deviceId } } : true,
-        });
+      // The exact device is unavailable (a saved deviceId for an unplugged camera, or it's in use).
+      // Fall back to the default device so we never crash, and clear the dead id so persistence + the
+      // dropdown stay honest. (Resolution is `ideal`, so OverconstrainedError can only be the device.)
+      if (e instanceof DOMException && (e.name === "OverconstrainedError" || e.name === "NotFoundError")) {
+        console.warn("[cam] requested device unavailable, falling back to default:", this.deviceId);
+        this.deviceId = null;
+        stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: width }, height: { ideal: height } } });
       } else throw e;
     }
 
