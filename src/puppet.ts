@@ -33,6 +33,7 @@ export const CENTER_STRING_LEN = 6.2; // head rope length -> 51.7% of a 12u view
 // loose — relaxed, not floppy-to-the-floor (PRD §2 deliberate tempo).
 const HEAD_SLACK = 1.0;
 const LOOSE_ROPE_SLACK = 1.22;
+const HAND_SLACK = 1.15; // hand strings: hang loose-ish but responsive to raising/tilting the bar
 
 // Collision filtering (32-bit: high 16 = membership, low 16 = mask of groups it collides with).
 // Puppet parts collide with the FLOOR but not each other (no self-jitter); the floor collides only
@@ -65,14 +66,17 @@ export interface PuppetString {
 // The four attach points. Spreading them across the control bar — instead of pinning
 // everything to one spot — is what makes this read as a marionette, and these rows are
 // exactly what a future "customize the rig" feature would edit (toward the 9-string set).
-// `slack`: maxLength = restDist * slack. The head bears the weight (near-taut) but is STILL a rope,
-// so it goes slack when the puppet rests on the floor; the limbs hang looser.
-interface AttachSpec { name: string; controlAnchor: Vec2; bodyAnchor: Vec2; slack: number }
+// `target`: which body the string ends on; `slack`: maxLength = restDist * slack. The head bears
+// the weight (near-taut) but is STILL a rope, so it goes slack when the puppet rests; the others
+// hang looser. The two bar ends run to the HANDS (arm tips), so raising/tilting the bar moves the
+// arms directly (classic marionette hand control).
+type TargetName = "torso" | "lArm" | "rArm";
+interface AttachSpec { name: string; target: TargetName; controlAnchor: Vec2; bodyAnchor: Vec2; slack: number }
 const ATTACH: AttachSpec[] = [
-  { name: "head",      controlAnchor: { x: 0, y: 0 },                bodyAnchor: { x: 0, y: 0.5 },     slack: HEAD_SLACK },
-  { name: "lShoulder", controlAnchor: { x: -CONTROL_HALF_W, y: 0 },  bodyAnchor: { x: -0.35, y: 0.4 }, slack: LOOSE_ROPE_SLACK },
-  { name: "rShoulder", controlAnchor: { x:  CONTROL_HALF_W, y: 0 },  bodyAnchor: { x:  0.35, y: 0.4 }, slack: LOOSE_ROPE_SLACK },
-  { name: "lowerBack", controlAnchor: { x: 0, y: -CONTROL_HALF_V },  bodyAnchor: { x: 0, y: -0.5 },    slack: LOOSE_ROPE_SLACK },
+  { name: "head",      target: "torso", controlAnchor: { x: 0, y: 0 },               bodyAnchor: { x: 0, y: 0.5 },  slack: HEAD_SLACK },
+  { name: "lHand",     target: "lArm",  controlAnchor: { x: -CONTROL_HALF_W, y: 0 }, bodyAnchor: { x: 0, y: -0.4 }, slack: HAND_SLACK },
+  { name: "rHand",     target: "rArm",  controlAnchor: { x:  CONTROL_HALF_W, y: 0 }, bodyAnchor: { x: 0, y: -0.4 }, slack: HAND_SLACK },
+  { name: "lowerBack", target: "torso", controlAnchor: { x: 0, y: -CONTROL_HALF_V }, bodyAnchor: { x: 0, y: -0.5 }, slack: LOOSE_ROPE_SLACK },
 ];
 
 export interface Rig {
@@ -106,9 +110,9 @@ const TURN_GAIN = 0.7; // yaw(rad)  -> asymmetric shoulder height: the shoulders
 function posedAnchor(name: string, base: Vec2, pitch: number, yaw: number): Vec2 {
   let x = base.x * Math.cos(yaw);   // horizontal members foreshorten as the bar yaws
   let y = base.y * Math.cos(pitch); // vertical members foreshorten as the bar pitches
-  if (name === "head") y -= pitch * NOD_GAIN;        // pull the head string -> nod / weight shift
-  else if (name === "lShoulder") y += yaw * TURN_GAIN; // shoulders swap height -> turn
-  else if (name === "rShoulder") y -= yaw * TURN_GAIN;
+  if (name === "head") y -= pitch * NOD_GAIN;     // pull the head string -> nod / weight shift
+  else if (name === "lHand") y += yaw * TURN_GAIN; // bar ends swap height -> turn (now via the hands)
+  else if (name === "rHand") y -= yaw * TURN_GAIN;
   return { x, y };
 }
 
@@ -179,14 +183,16 @@ export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
   spherical(torso, { x: -0.15, y: -0.5 }, lLeg, { x: 0, y: 0.45 });
   spherical(torso, { x:  0.15, y: -0.5 }, rLeg, { x: 0, y: 0.45 });
 
-  // ---- four control strings from the control bar to the torso ----
+  // ---- four control strings: head + lower-back to the torso, the two bar ends to the hands ----
+  const targets: Record<TargetName, RAPIER_NS.RigidBody> = { torso, lArm, rArm };
   const controlT = control.translation();
-  const torsoT = torso.translation();
   const strings: PuppetString[] = ATTACH.map((spec) => {
+    const body = targets[spec.target];
+    const bodyT = body.translation();
     const top: Vec2 = { x: controlT.x + spec.controlAnchor.x, y: controlT.y + spec.controlAnchor.y };
-    const bot: Vec2 = { x: torsoT.x + spec.bodyAnchor.x, y: torsoT.y + spec.bodyAnchor.y };
+    const bot: Vec2 = { x: bodyT.x + spec.bodyAnchor.x, y: bodyT.y + spec.bodyAnchor.y };
     // Every string is a non-rigid rope (one-sided max-length): it pulls when taut, never pushes, and
-    // goes slack when the puppet is closer than maxLength (e.g. resting on the floor). The renderer
+    // goes slack when the body is closer than maxLength (e.g. resting on the floor). The renderer
     // reads maxLength back to bend the bezier; slack = maxLength - distance.
     const restDist = Math.hypot(top.x - bot.x, top.y - bot.y);
     const maxLength = restDist * spec.slack;
@@ -196,10 +202,10 @@ export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
         { x: spec.controlAnchor.x, y: spec.controlAnchor.y, z: 0 },
         { x: spec.bodyAnchor.x, y: spec.bodyAnchor.y, z: 0 },
       ),
-      control, torso,
+      control, body,
       true,
     );
-    return { name: spec.name, controlAnchor: spec.controlAnchor, body: torso, bodyAnchor: spec.bodyAnchor, controlJoint, maxLength };
+    return { name: spec.name, controlAnchor: spec.controlAnchor, body, bodyAnchor: spec.bodyAnchor, controlJoint, maxLength };
   });
 
   const posedAnchors = strings.map((s) => ({ ...s.controlAnchor }));

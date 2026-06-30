@@ -32,7 +32,7 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
   We use a **horizontal control**: the cross with bars at right angles, the US style for human
   figures. Rendered as a "+" in the screen plane (a 2.5D stylization).
 - **strings** — the threads. The British **9-string standard** is one to each knee, hand and
-  shoulder, two to the head, one to the lower back. Our four (head, two shoulders, lower back)
+  shoulder, two to the head, one to the lower back. Our four (head, two **hands**, lower back)
   are a subset; the customization feature grows toward the full nine.
 
 ## What it does
@@ -60,7 +60,7 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
       **index-MCP(5) / pinky-MCP(17)** — the knuckle row: a stable, curl-proof span.
   - The cross stays a **fixed-size rigid "+"** (`CONTROL_HALF_W/V`): the two points set only center +
     roll; the string-anchor span is **not** scaled with hand spread (that would restretch the
-    shoulder-string rest lengths and destabilize the rig).
+    string rest lengths and destabilize the rig).
 - **Hand orientation → control pitch / yaw:** `handPose()` (in `hands.ts`) reads two decoupled
   proxies — **pitch** from the in-image **finger-drop** (mean fingertip y vs mean knuckle y,
   normalized by hand scale — read like the hand's angle "from the side", no depth, so it's steady),
@@ -68,25 +68,27 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
   here — it's the measured 2-point angle above.) Pitch is smoothed light; yaw rides the noisy z
   channel and is smoothed hard. Pitch's neutral is grip-dependent, so `PITCH_NEUTRAL` zeroes the
   resting reading. `poseControl()` then re-poses the bar:
-  - **Roll** is a real in-plane **Z rotation** of the kinematic body — one shoulder anchor rises,
-    the other drops, and the torso **leans through the strings** (genuine physics).
+  - **Roll** is a real in-plane **Z rotation** of the kinematic body — one bar end (hand) rises,
+    the other drops, and the puppet **leans through the strings** (genuine physics).
   - **Pitch & yaw are simulated orthographically, in-plane.** Rotating the control body *out* of
     plane would yank the z-locked lower-back rope along its one forbidden axis and blow the solver
     up (verified headlessly), so instead the control-local anchors are repositioned: `cos()`
     **foreshortens** the bar (vertical member under pitch, horizontal under yaw), and a gentle
-    **nod / turn pull** (head anchor drops; shoulders swap height) moves the puppet — foreshortening
+    **nod / turn pull** (head anchor drops; the bar-end/hand anchors swap height) moves the puppet — foreshortening
     on its own only slackens the max-length ropes, so it can't pull. Nothing ever leaves the
     plane — every body (control included) stays at `z = 0`, so the Z-lock is bulletproof.
-- **Visible strings (PRD §4.1):** four strings run from the control bar to the torso —
-  **head** (center), **two shoulders** (wide, angled in from the bar ends), and **lower back**.
+- **Visible strings (PRD §4.1):** four strings run from the control bar — **head** (center, to the
+  torso top), the **two bar ends to the hands** (the arm tips, so raising/tilting the bar moves the
+  arms directly), and **lower back** (to the torso bottom).
   **Every string is a non-rigid rope** — a one-sided max-length joint that *pulls when taut and
   goes slack when shortened, but never pushes*. None are rigid, so the puppet can rest/crumple on
   the floor without any string burying it.
   - **Head string** bears the weight: near-taut (`slack ≈ 1.0`), so it hangs the puppet at the
     right height and spans **51.7% of viewport height** when taut (holding on resize — the renderer
     maps a *fixed world height* to the canvas). It still goes slack when the puppet rests.
-  - **Limb strings** (two shoulders, lower back) hang looser (`slack = rest * LOOSE_ROPE_SLACK`,
-    ~×1.22).
+  - **Hand strings** (the bar ends → arm tips, `HAND_SLACK ≈ 1.15`) and the **lower-back string**
+    (`LOOSE_ROPE_SLACK ≈ 1.22`) hang looser. Raising or tilting the bar takes their slack up and
+    lifts/poses the arms — verified: raising the control lifts each hand ~3 units.
   - Each is drawn as a smooth **quadratic bezier** whose sag is computed live from the actual slack
     — `slack = maxLength − distance(top, end)` — with the control point pulled **downward under
     gravity** in proportion. So a string droops when relaxed and **straightens to the taut chord**
@@ -138,23 +140,23 @@ demonstrably moves the torso.
 
 ## Tuning knobs (in `src/puppet.ts`)
 
-- `ATTACH` — the four strings as data rows (name, control-bar anchor, torso anchor, `slack`).
-  This is the seam for the future "customize the rig" feature: edit/add rows toward the
-  British 9-string set (add hands + knees). All strings are non-rigid ropes drawn as drooping
-  beziers; `slack` sets each one's `maxLength = restDist * slack`.
+- `ATTACH` — the four strings as data rows (name, `target` body, control-bar anchor, body anchor,
+  `slack`). This is the seam for the future "customize the rig" feature: edit/add rows toward the
+  British 9-string set (add knees). The two bar ends `target` the arms (`lArm`/`rArm`) = the hands;
+  head and lower back `target` the torso. All strings are non-rigid ropes drawn as drooping beziers.
 - `SOLVER_ITERATIONS` (`16`) — constraint solver iterations. Ropes are meant to be inextensible,
   but at the default (~4) they stretch ~2.7% under a hard yank (a rubberband feel); `16` drops that
   to ~0.2% (imperceptible). Cheap here (~5 bodies). Lower = springier strings, higher = stiffer.
-- `HEAD_SLACK` (`~1.0`, near-taut weight-bearer) / `LOOSE_ROPE_SLACK` (`~1.22`, loose limbs) —
-  per-string slack. Lower = tighter / more control authority; higher = droopier. Each rope exposes
+- `HEAD_SLACK` (`~1.0`, weight-bearer) / `HAND_SLACK` (`~1.15`, bar-ends→hands) / `LOOSE_ROPE_SLACK`
+  (`~1.22`, lower back) — per-string slack. Lower = tighter / more control; higher = droopier. Each rope exposes
   its `maxLength` so the renderer computes live slack for the bezier sag.
 - `ROPE_SAG_GRAVITY` (`src/draw.ts`) — how far the loose-rope bezier control point sags downward
   per world-unit of slack. Higher = droopier curve. (slack→0 ⇒ the curve straightens to the chord.)
-- `CONTROL_HALF_W` / `CONTROL_HALF_V` — how wide the control bar spreads the shoulder strings
+- `CONTROL_HALF_W` / `CONTROL_HALF_V` — how wide the control bar spreads the hand strings
   and how far its cross bar reaches for head/lower-back.
 - `WORLD_VIEW_HEIGHT`, `CONTROL_BASE_Y`, `CENTER_STRING_LEN`, `FLOOR_TOP` — rig geometry, head-rope length, floor height.
 - `NOD_GAIN` / `TURN_GAIN` (`src/puppet.ts`) — how hard pitch nods the head string and yaw swings
-  the shoulders. Keep them gentle (PRD §2 wants a deliberate tempo).
+  the bar ends (hands). Keep them gentle (PRD §2 wants a deliberate tempo).
 
 Direct-drive config (in `src/control.ts`):
 
