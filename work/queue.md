@@ -7,4 +7,4 @@
 - [x] Strings collide with the floor, still pass through the puppet — see [strings-hit-floor.md](strings-hit-floor.md)
 - [x] Two players from one camera (handedness-correct, no string crossing) — see [two-player-handedness.md](two-player-handedness.md)
 - [x] Finger control points can't go below the floor (top/left/right free) — see [clamp-fingers-floor.md](clamp-fingers-floor.md)
-- [~] Move MediaPipe hand detection into a Web Worker — see [hands-web-worker.md](hands-web-worker.md) — REVERTED at runtime: MediaPipe's wasm loader needs a CLASSIC worker (uses importScripts, absent in module workers → "ModuleFactory not set"). Not needed for 60fps; re-attempt with the classic-worker approach only if a future feature strains the budget.
+- [ ] Off-thread hand detection — CLASSIC web worker, async/best-effort (profiled: detection = 24.6ms) — see [hands-web-worker.md](hands-web-worker.md)

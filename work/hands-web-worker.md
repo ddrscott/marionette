@@ -1,67 +1,72 @@
-# Move MediaPipe hand detection into a Web Worker (unblock the render thread)
+# Off-thread hand detection — CLASSIC Web Worker, async/best-effort (no jank)
 
-## Problem
-`detectForVideo` runs **synchronously on the main thread** every camera frame. With `numHands: 2`
-it's roughly double the per-hand cost and blocks rendering, pinning fps to ~30 (physics is only
-~1.5 ms/step, so it's NOT the sim — profiled). PRD §5 flagged this exact move: "Detection blocks the
-main thread — fine for spike-1; move to a Web Worker if frame rate suffers." Offload detection so the
-physics/render loop never waits on inference.
+## Problem (confirmed by profiling)
+`detectForVideo` runs SYNCHRONOUSLY on the main thread. A Chrome profile shows `vision_wasm_internal`
+inference taking **~24.6 ms** per call (and it's WASM/CPU time — the GPU delegate may be falling back
+to CPU). With `numHands:2` at camera rate that blocks the render thread and caps fps well below 60.
+Move detection off-thread so the render/physics loop NEVER waits on inference.
 
-## Prerequisite
-Only worth doing if detection is confirmed the bottleneck: with the debug overlay OFF (now default),
-two-hand fps should be ~30 if it's detection (physics is cheap, debug draw is now batched). If fps is
-already fine with debug off, note that and keep the change minimal/optional.
+## A prior attempt failed — THIS is the fix
+The first offload used a `type:"module"` worker and died at init with **"ModuleFactory not set"**:
+MediaPipe's wasm loader calls `importScripts()`, which **does not exist in module workers**, so the
+Emscripten module factory is never set. (That version was reverted — commit `be33381`.)
+**The fix is a CLASSIC (non-module) worker**, where `importScripts` works and MediaPipe's loader runs.
 
-## Architecture (suggested)
-- **New worker module** `src/handsWorker.ts` (Vite bundles workers via
-  `new Worker(new URL("./handsWorker.ts", import.meta.url), { type: "module" })`). It imports
-  `@mediapipe/tasks-vision`, creates the `HandLandmarker` (VIDEO mode, `numHands: 2`, GPU delegate,
-  same CDN WASM + model paths as `hands.ts` today), and on each posted frame runs `detectForVideo`
-  and posts back `{ hands: [{ landmarks, handedness }], t }`.
-- **Frame transfer (main → worker):** each new camera frame, main does
-  `const bmp = await createImageBitmap(video)` and `worker.postMessage({ bmp, t }, [bmp])` (transfer,
-  zero-copy). Worker runs `detectForVideo(bmp, t)` then `bmp.close()`. (createImageBitmap + transfer
-  is simple and Chrome-supported; `MediaStreamTrackProcessor`/VideoFrame is a fancier Chrome-only
-  alternative — not needed.)
-- **Backpressure:** keep at most ONE frame in flight — don't send a new frame until the previous
-  result returns (a simple `inFlight` boolean). This keeps latency low and avoids a frame backlog
-  building lag. The physics loop keeps using the **latest received** result every frame (the existing
-  decoupled §5 design already feeds "last known landmarks" — async fits naturally).
-- **`hands.ts` becomes the main-thread interface:** spawn the worker, own the camera/getUserMedia,
-  pump frames, receive results, and expose the latest `{ hands }` (landmarks + handedness per hand)
-  to `main.ts`. Keep `HAND_CONNECTIONS` exported for the overlay.
-- **`main.ts`:** replace the inline `hands.landmarker.detectForVideo(...)` in `readHands` with reading
-  the worker's latest result. Everything downstream (per-hand assignment by wrist-x, handedness
-  binding via `bindingForHandedness`, the two-player drive) stays the same — it already consumes
-  landmarks + a handedness category string.
+## Async / best-effort design (this is what kills the jank — user asked for exactly this)
+- The render+physics loop runs every rAF and **never awaits** detection.
+- **One frame in flight**: only post a new frame to the worker when the previous result has returned
+  (an `inFlight` guard). If inference is slow, newer frames are simply **dropped, not queued** — so
+  detection runs at its own best-effort rate and can never build a backlog or hitch the render.
+- The loop always consumes the **latest** result (a frame or two stale is fine); the per-finger One
+  Euro smoothing + the puppet's physics inertia absorb the staleness. (This is the §5 decoupled
+  design — already in place; the worker just moves the heavy part off-thread.)
+
+## Classic-worker mechanics (the part to get right)
+- Make Vite emit the worker as a **classic** script, not an ES module. Two viable routes — use
+  whichever builds AND serves cleanly in dev:
+  - `new Worker(new URL("./handsWorker.ts", import.meta.url), { type: "classic" })`, and/or
+  - set `worker: { format: "iife" }` in a `vite.config.ts`.
+  Confirm the emitted worker chunk is an IIFE/classic script (not `export`-ing ESM) and that
+  `npm run dev` serves it without a "module worker"/resolve error.
+- The worker can still `import { FilesetResolver, HandLandmarker } from "@mediapipe/tasks-vision"` in
+  source — Vite inlines it into the classic IIFE bundle, so at runtime the worker is classic and
+  MediaPipe's internal `importScripts(wasmLoader)` works. (If a classic Vite worker can't bundle the
+  ESM dep, fall back to `importScripts("<CDN vision_bundle that exposes globals>")` — but try the
+  bundled-import route first; note in the report which worked.)
+- Keep the SAME options: VIDEO mode, `numHands:2`, `delegate:"GPU"` (auto-falls back to CPU; that's
+  fine — even CPU inference in the worker no longer janks the render), same CDN WASM + model paths.
+
+## Architecture (unchanged from the reverted attempt except classic-worker + emphasis)
+- `src/handsWorker.ts` — builds HandLandmarker once, posts `{type:"ready"}`; on each `{type:"frame", bmp, t}`
+  runs detect, posts `{type:"result", hands:[{landmarks, handedness(categoryName)}], t}`, and `bmp.close()`s.
+- `src/handsProtocol.ts` — fully-typed inbound/outbound messages (no `any` in payloads) + a hardcoded
+  `HAND_CONNECTIONS` so the MAIN bundle never imports `@mediapipe`.
+- `src/hands.ts` — main-thread interface: owns camera/getUserMedia, spawns + `await`s the worker
+  `ready`, `pump(t)` ships `createImageBitmap(video)` frames (transfer) with the `inFlight` guard +
+  currentTime gate, exposes `latest` + `seq`. Keep `HAND_CONNECTIONS`/`Landmark` exports.
+- `src/main.ts` — `readHands` calls `hands.pump(now)`, re-assigns only when `hands.seq` changed (else
+  holds last hands). Wrist-x assignment, `bindingForHandedness`, `drivePuppet`, overlay, 0/1/2-hand
+  handling, hand-LOST — all UNCHANGED. Keep the new string-friction / drag / weight sliders working.
 
 ## Acceptance Criteria
-- [ ] Hand detection runs in a Web Worker; the main loop no longer calls `detectForVideo` (no
-      synchronous inference on the render thread). With debug off + two hands, fps recovers toward 60
-      (USER must confirm on a real webcam — see "unverifiable" below).
-- [ ] Still `numHands: 2`; per-hand **landmarks AND handedness** come back from the worker, so the
-      two-player binding + `HANDEDNESS_LABEL_IS_MIRRORED` logic still work unchanged.
-- [ ] Graceful: worker init/await before the loop starts; 0/1/2 hands handled; one frame in flight
-      (no backlog); hand-LOST indicator still works.
-- [ ] `npm run build` passes (Vite bundles the worker). No regressions to physics, two-player,
-      floor-clamp, or the finger bindings.
-- [ ] README updated (detection now off-thread; §5 note resolved).
+- [ ] Detection runs in a **classic** worker; main loop never calls `detectForVideo`. The emitted
+      worker is a classic/IIFE script (verify it's not a module worker — that's what broke before).
+- [ ] `numHands:2` + per-hand **landmarks AND handedness** survive the round-trip (two-player binding +
+      `HANDEDNESS_LABEL_IS_MIRRORED` still work).
+- [ ] Async best-effort: one frame in flight, stale frames dropped, render never blocks; 0/1/2 hands ok.
+- [ ] `npm run build` clean (Vite bundles the classic worker); `npm run dev` serves the worker chunk
+      (HTTP 200, no resolve/module-worker error). Main bundle has ZERO `@mediapipe` refs.
+- [ ] README updated (off-thread detection; classic-worker note; the §5 decoupling).
 
-## Relevant Files
-- `src/hands.ts` — split into the worker (`src/handsWorker.ts`) + the main-thread interface.
-- `src/main.ts` — consume worker results instead of inline detection.
-- `src/draw.ts` — overlay unchanged (still draws the latest landmarks).
-- `README.md` — architecture + the §5 worker note.
-
-## Unverifiable headlessly (be honest in the report)
-- The actual fps win and worker round-trip latency need a **real browser + webcam** — the worker
-  CANNOT verify them; it can only confirm the build/bundle and the message-protocol types. State this
-  clearly and tell the user to confirm fps with two hands.
-- MediaPipe-in-worker init quirks (CDN WASM in a module worker) may surface only at runtime.
+## Runtime-UNVERIFIABLE (be explicit; the prior attempt's bug only showed at runtime)
+- The actual fps win, the worker round-trip, MediaPipe-in-worker init, the GPU/CPU delegate, and
+  `createImageBitmap`/`getUserMedia` ALL need a real Chrome + webcam. The worker can ONLY prove the
+  build/bundle/protocol-types + that the chunk is classic. STATE this; tell the user to test two-hand
+  fps in Chrome and watch the console for `[handsWorker]` init errors (esp. another "ModuleFactory not
+  set" — which would mean the worker is still emitting as a module).
 
 ## Constraints
-- Keep the GPU delegate + the same CDN WASM/model paths; keep `numHands: 2`.
-- Preserve the decoupled loop (physics/render every rAF; detection async at camera rate).
-- Don't break two-player, handedness, floor-clamp, or the heavier-string/floor-collision physics.
-- Stay on 2D canvas; no emojis. Rapier `@dimforge/rapier3d-compat@0.19.3`; tasks-vision `0.10.x`.
-- Avoid the `id="dbg"` class of footgun — no new DOM ids that shadow library globals.
+- CLASSIC worker (the whole point); keep GPU delegate attempt + same CDN paths + `numHands:2`;
+  preserve handedness; don't break two-player / floor-clamp / finger bindings / string-friction /
+  the heavier-string + floor-collision physics; keep debug overlay default OFF; 2D canvas; no emojis;
+  no DOM id shadowing a library global (the `dbg` footgun). Rapier 0.19.3, tasks-vision 0.10.x.
