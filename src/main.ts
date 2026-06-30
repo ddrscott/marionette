@@ -52,12 +52,11 @@ const deadzone = (v: number, d: number) => (Math.abs(v) <= d ? 0 : v - Math.sign
 // Horizontal uses the live view width (full detection range -> full screen width). Vertical is
 // biased so a centered hand stands the puppet on the floor; raising lifts it off, lowering crumples
 // it onto the floor. Motion isn't artificially clamped — the floor is the only constraint.
-// Vertical range bottoms out where the puppet's feet rest cleanly on the floor (~cross 9.1) and
-// tops out at a high dangle (~11.5). The rigid center chain can't go slack, so dropping the cross
-// below the rest point would bury the puppet — this range keeps the rest clean. (A slack-capable
-// rope center would allow a larger range + crumpling; see README "next pass".)
-const VERT_CENTER = 10.3; // cross height at a centered hand (puppet dangles above the floor)
-const VERT_SPAN = 2.4;    // full-swing vertical travel: cross y spans VERT_CENTER ± VERT_SPAN/2
+// Full vertical reach: the cross spans the whole view height. All strings are now non-rigid ropes,
+// so dropping the cross low just lets them go slack and the puppet rests/crumples on the floor (no
+// burying). Neutral hand -> mid-screen; hand down -> cross to the bottom; hand up -> high dangle.
+const VERT_CENTER = WORLD_VIEW_HEIGHT / 2; // 6
+const VERT_SPAN = WORLD_VIEW_HEIGHT;       // 12 -> cross y spans [0, 12] at full swing
 
 // ---- control-path smoothing (LATENCY TUNING — named constants so feel can be dialed) ----
 // The raw landmark overlay has no perceptible lag, so detection is fast and low-jitter; the delay

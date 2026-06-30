@@ -79,32 +79,28 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
     plane — every body (control included) stays at `z = 0`, so the Z-lock is bulletproof.
 - **Visible strings (PRD §4.1):** four strings run from the control bar to the torso —
   **head** (center), **two shoulders** (wide, angled in from the bar ends), and **lower back**.
-  The string model mirrors a real marionette's load distribution:
-  - **Center / head string = taut.** It bears the puppet's weight, so it hangs essentially
-    straight. It's a chain of 5 light segment bodies (spherical joints): under the torso load it
-    draws ~straight while still showing its natural secondary pendulum swing. The renderer strokes
-    it as a **smooth curve through the chain nodes** (quadratic midpoint smoothing) so it reads as
-    one continuous string, not 5 visible segments. It spans **51.7% of viewport height** and holds
-    that fraction on resize (the renderer maps a *fixed world height* to the canvas, so any
-    world-unit length is a constant fraction of pixels).
-  - **Limb strings = loose.** The two shoulders and the lower back carry little load, so their
-    **rope joints** are given deliberate slack (`maxLength = rest * LOOSE_ROPE_SLACK`, ~×1.22) and
-    **hang loose**. The renderer draws each as a smooth **quadratic bezier** whose sag is computed
-    live from the actual slack — `slack = maxLength − distance(top, end)` — with the control point
-    pulled **downward under gravity** in proportion to that slack. So the curve is *dynamic*: it
-    droops when relaxed and **straightens to the taut chord** as the control tilts or moves enough
-    to take the slack up. The slack is tuned loose-at-rest but tight enough that deliberate
-    tilt/translation still poses the limbs (the pitch/yaw feature isn't neutered).
+  **Every string is a non-rigid rope** — a one-sided max-length joint that *pulls when taut and
+  goes slack when shortened, but never pushes*. None are rigid, so the puppet can rest/crumple on
+  the floor without any string burying it.
+  - **Head string** bears the weight: near-taut (`slack ≈ 1.0`), so it hangs the puppet at the
+    right height and spans **51.7% of viewport height** when taut (holding on resize — the renderer
+    maps a *fixed world height* to the canvas). It still goes slack when the puppet rests.
+  - **Limb strings** (two shoulders, lower back) hang looser (`slack = rest * LOOSE_ROPE_SLACK`,
+    ~×1.22).
+  - Each is drawn as a smooth **quadratic bezier** whose sag is computed live from the actual slack
+    — `slack = maxLength − distance(top, end)` — with the control point pulled **downward under
+    gravity** in proportion. So a string droops when relaxed and **straightens to the taut chord**
+    as the control tilts/moves to take the slack up. The head is drawn brighter/thicker (it's the
+    weight-bearer); deliberate tilt/translation still poses the limbs (pitch/yaw isn't neutered).
 
   The four strings pose the torso — position and tilt — so you can act with intent; arms and legs
   ragdoll passively off the torso.
 - **Floor (PRD §7 deferral, reopened):** a static shelf (`FLOOR_TOP` in `puppet.ts`) sits near the
   bottom of the view so a lowered control rests the puppet on-screen instead of dropping it away —
   a *world* constraint, not an input clamp. Collision groups let the puppet parts hit the floor but
-  not each other or the strings. **Caveat:** the center string is a rigid chain (fixed length), so
-  it can't go slack; the clean vertical range bottoms out at "feet on the floor" (cross ≈ 9.1) — go
-  lower and the chain would bury the puppet. A larger range with crumple-on-floor needs a
-  slack-capable **rope** center (see "next pass").
+  not each other. Because every string is a slack-capable rope, the **full vertical range** is
+  usable: drop the control and the strings go limp and the puppet **crumples onto the floor**
+  (verified: rests cleanly, ~3 mm contact, no burying); raise it and the puppet lifts off.
 - **Hand overlay (PRD §4.2):** all 21 landmarks + `HAND_CONNECTIONS` drawn over the camera
   preview, ringed in green with a crosshair that mirrors the control-bar crosshair on stage, making
   the hand→control mapping legible at a glance. (The overlay's reference marker is a hint only; the
@@ -126,7 +122,7 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
 |---|---|
 | `src/main.ts` | Loop: physics steps every frame; `detectForVideo` only on new camera frames (§5). Controls, control-bar position + roll (from the 2-point drive) + pitch/yaw mapping, the control-path One Euro filters and their named latency-tuning constants. |
 | `src/control.ts` | **Dependency-free** direct-drive geometry: the `DRIVE` binding config, `controlDrive()` (the two stage-space bar ends), `controlCenter()` (midpoint), `rollAngleOf()` (bar angle). No MediaPipe import, so the measured position/roll math is unit-testable headlessly in Node. |
-| `src/puppet.ts` | Rapier rig: control bar, four strings (head chain + 3 ropes), torso + limbs. The `ATTACH` array, world-layout constants, and `poseControl()` (roll body rotation + in-plane pitch/yaw anchor posing) live here. |
+| `src/puppet.ts` | Rapier rig: control bar, four non-rigid rope strings, torso + limbs, floor. The `ATTACH` array, world-layout constants, and `poseControl()` (roll body rotation + in-plane pitch/yaw anchor posing) live here. |
 | `src/hands.ts` | MediaPipe init (CDN WASM + model), `HAND_CONNECTIONS`, and `handPose()` (pitch/yaw proxies; roll is now measured in `control.ts`). |
 | `src/draw.ts` | 2D-canvas renderer (adaptive scale) + hand-landmark overlay. |
 | `src/oneEuro.ts` | One Euro filter, ported verbatim from the validated dot test. |
@@ -142,18 +138,18 @@ demonstrably moves the torso.
 
 ## Tuning knobs (in `src/puppet.ts`)
 
-- `ATTACH` — the four strings as data rows (name, control-bar anchor, torso anchor, chain|rope).
+- `ATTACH` — the four strings as data rows (name, control-bar anchor, torso anchor, `slack`).
   This is the seam for the future "customize the rig" feature: edit/add rows toward the
-  British 9-string set (add hands + knees). Head is a `chain` (the taut, weight-bearing ≥50%
-  hero); the rest are loose `rope`s drawn as drooping beziers.
-- `LOOSE_ROPE_SLACK` (`src/puppet.ts`) — how loose the limb ropes hang: `maxLength = rest *
-  this`. ~1.18–1.30 reads relaxed; lower = tighter/more control authority, higher = droopier.
-  Each rope exposes its `maxLength` so the renderer can compute live slack for the bezier sag.
+  British 9-string set (add hands + knees). All strings are non-rigid ropes drawn as drooping
+  beziers; `slack` sets each one's `maxLength = restDist * slack`.
+- `HEAD_SLACK` (`~1.0`, near-taut weight-bearer) / `LOOSE_ROPE_SLACK` (`~1.22`, loose limbs) —
+  per-string slack. Lower = tighter / more control authority; higher = droopier. Each rope exposes
+  its `maxLength` so the renderer computes live slack for the bezier sag.
 - `ROPE_SAG_GRAVITY` (`src/draw.ts`) — how far the loose-rope bezier control point sags downward
   per world-unit of slack. Higher = droopier curve. (slack→0 ⇒ the curve straightens to the chord.)
 - `CONTROL_HALF_W` / `CONTROL_HALF_V` — how wide the control bar spreads the shoulder strings
   and how far its cross bar reaches for head/lower-back.
-- `WORLD_VIEW_HEIGHT`, `CONTROL_BASE_Y`, `HEAD_SEG_COUNT`, `SEG_HALF` — rig geometry and string length.
+- `WORLD_VIEW_HEIGHT`, `CONTROL_BASE_Y`, `CENTER_STRING_LEN`, `FLOOR_TOP` — rig geometry, head-rope length, floor height.
 - `NOD_GAIN` / `TURN_GAIN` (`src/puppet.ts`) — how hard pitch nods the head string and yaw swings
   the shoulders. Keep them gentle (PRD §2 wants a deliberate tempo).
 
@@ -188,18 +184,14 @@ Rotation + control-path tunables in `src/main.ts`:
   `ROLL_MIN_CUTOFF`), `fpitch`, and `fyaw` (z is the noisiest channel, so yaw is smoothed hardest).
 - The on-screen **tilt range** slider is a master multiplier over all three angles (`0–1`, live).
 - **Position reach:** `swingRange` (`0–1`) scales full-screen reach on both axes. `VERT_CENTER` /
-  `VERT_SPAN` set the cross's vertical band (default `10.3 ± 1.2` → ~`[9.1, 11.5]`): bottom = puppet
-  resting on the floor, top = high dangle. `FLOOR_TOP` (`puppet.ts`) is the floor height.
+  `VERT_SPAN` set the cross's vertical band (default `6 ± 6` → full `[0, 12]`): hand down drops the
+  cross to the bottom (puppet crumples on the floor), hand up dangles it high. `FLOOR_TOP`
+  (`puppet.ts`) is the floor height.
 
 ## Notes for the next pass
 
 - **Render:** still 2D canvas (PRD §4.4 permits it; fastest for a feel test). Three.js
   migration is deferred to whenever spike-2 needs it — `three` is intentionally not a dep yet.
-- **Rope center for a bigger vertical range:** the center string is a rigid chain, so the clean
-  vertical range stops at "feet on the floor". Converting the center to a slack-capable rope
-  (rendered as a bezier, like the limbs) would let the cross drop further and the puppet crumple
-  onto the floor without the chain burying it — at the cost of the chain's segmented secondary
-  motion. Open question for the next pass.
 - The Rapier API was version-checked against the installed `@dimforge/rapier3d-compat@0.19.3`.
 - The verdict on whether this is "legible enough to act with intent" is **Scott's hand
   judgment** (PRD §6) — it gates whether spike-2 (fingers → individual string motors) proceeds.
