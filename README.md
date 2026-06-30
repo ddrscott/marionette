@@ -80,29 +80,31 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
 - **Visible strings (PRD §4.1):** four strings run from the control bar — **head** (center, to the
   torso top), the **two bar ends to the hands** (the arm tips, so raising/tilting the bar moves the
   arms directly), and **lower back** (to the torso bottom).
-  **Every string is a non-rigid rope** — a one-sided max-length joint that *pulls when taut and
-  goes slack when shortened, but never pushes*. None are rigid, so the puppet can rest/crumple on
-  the floor without any string burying it.
-  - **Head string** bears the weight: near-taut (`slack ≈ 1.0`), so it hangs the puppet at the
-    right height and spans **51.7% of viewport height** when taut (holding on resize — the renderer
-    maps a *fixed world height* to the canvas). It still goes slack when the puppet rests.
-  - **Hand strings** (the bar ends → arm tips, `HAND_SLACK ≈ 1.15`) and the **lower-back string**
-    (`LOOSE_ROPE_SLACK ≈ 1.22`) hang looser. Raising or tilting the bar takes their slack up and
-    lifts/poses the arms — verified: raising the control lifts each hand ~3 units.
-  - Each is drawn as a smooth **quadratic bezier** whose sag is computed live from the actual slack
-    — `slack = maxLength − distance(top, end)` — with the control point pulled **downward under
-    gravity** in proportion. So a string droops when relaxed and **straightens to the taut chord**
-    as the control tilts/moves to take the slack up. The head is drawn brighter/thicker (it's the
-    weight-bearer); deliberate tilt/translation still poses the limbs (pitch/yaw isn't neutered).
+  **Every string is a CHAIN of 10 stiff segment bodies** linked by spherical joints (`control →
+  seg0 → … → seg9 → body`). Rigid links make it inextensible (no stretch/rubberband), but the hinges
+  let it **fold** — so it goes slack by draping/folding and never snap-bounces the way a single
+  max-length rope does at the slack→taut transition. Segments are light (`SEG_DENSITY`) and collide
+  with nothing, and fold above the puppet when it rests, so nothing buries it.
+  - **Head string** bears the weight: taut (`HEAD_SLACK ≈ 1.0`), hangs the puppet at the right
+    height, spans **51.7% of viewport** (`CENTER_STRING_LEN`, holding on resize). The bar ends run to
+    the **hands** (`HAND_SLACK`), the **lower back** to the torso bottom (`LOOSE_ROPE_SLACK`), each
+    with a touch of fold room. Raising/tilting the bar still lifts/poses the arms (~3 units).
+  - Each is drawn as a **smooth curve through its segment nodes** (quadratic midpoint smoothing), so
+    it reads as one continuous folding string, not visible links. Head drawn brighter/thicker.
+  - **Stiffness caveat:** a 10-link series chain of light segments needs many solver iterations
+    (`SOLVER_ITERATIONS = 48`) to stay rigid; even so it stretches ~1–2% under normal motion and up
+    to ~7% under an aggressive combined fast-move + tilt (vs ~0.2% for a single rope). The trade is
+    deliberate: chains *fold and never snap-bounce*, which a stiff rope can't. Watch it live with the
+    debug overlay.
 
   The four strings pose the torso — position and tilt — so you can act with intent; arms and legs
   ragdoll passively off the torso.
 - **Floor (PRD §7 deferral, reopened):** a static shelf (`FLOOR_TOP` in `puppet.ts`) sits near the
   bottom of the view so a lowered control rests the puppet on-screen instead of dropping it away —
   a *world* constraint, not an input clamp. Collision groups let the puppet parts hit the floor but
-  not each other. Because every string is a slack-capable rope, the **full vertical range** is
-  usable: drop the control and the strings go limp and the puppet **crumples onto the floor**
-  (verified: rests cleanly, ~3 mm contact, no burying); raise it and the puppet lifts off.
+  not each other. Because every string is a foldable chain, the **full vertical range** is usable:
+  drop the control and the chains fold/go limp and the puppet **crumples onto the floor** (verified:
+  rests cleanly, ~3 mm contact, no burying); raise it and the puppet lifts off.
 - **Hand overlay (PRD §4.2):** all 21 landmarks + `HAND_CONNECTIONS` drawn over the camera
   preview, ringed in green with a crosshair that mirrors the control-bar crosshair on stage, making
   the hand→control mapping legible at a glance. (The overlay's reference marker is a hint only; the
@@ -113,9 +115,8 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
   fraction of full roll/pitch/yaw, default `1.0`; `0` = flat) with a live **roll/pitch/yaw degree
   readout**, a **damping slider** (how fast swings settle; `0` = swings forever), a
   string-length-% readout, and a **debug: physics lines** checkbox — overlays Rapier's raw
-  `world.debugRender()` segments (collider outlines + joint anchors) plus each rope's true
-  anchor-to-anchor `len / maxLength` and live **stretch %** (red past the cap), to verify how
-  elastic the strings actually are (head rope peaks ~+0.2% under a hard yank at `SOLVER_ITERATIONS=16`).
+  `world.debugRender()` segments (every chain link + joint) plus each chain's measured summed length
+  vs `nominalLen` and live **stretch %** (red past 0.3%), to watch how much the chains actually give.
 - **Swing damping:** every dynamic body (torso, limbs, string segments) carries linear + angular
   damping (`DEFAULT_*_DAMPING` in `puppet.ts`, default `1.0`, live via the slider / `setDamping`).
   Gravity sets the swing *frequency*, not its decay — without damping a pendulum conserves energy
@@ -127,7 +128,7 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
 |---|---|
 | `src/main.ts` | Loop: physics steps every frame; `detectForVideo` only on new camera frames (§5). Controls, control-bar position + roll (from the 2-point drive) + pitch/yaw mapping, the control-path One Euro filters and their named latency-tuning constants. |
 | `src/control.ts` | **Dependency-free** direct-drive geometry: the `DRIVE` binding config, `controlDrive()` (the two stage-space bar ends), `controlCenter()` (midpoint), `rollAngleOf()` (bar angle). No MediaPipe import, so the measured position/roll math is unit-testable headlessly in Node. |
-| `src/puppet.ts` | Rapier rig: control bar, four non-rigid rope strings, torso + limbs, floor. The `ATTACH` array, world-layout constants, and `poseControl()` (roll body rotation + in-plane pitch/yaw anchor posing) live here. |
+| `src/puppet.ts` | Rapier rig: control bar, four 10-segment chain strings, torso + limbs, floor. The `ATTACH` array, world-layout constants, and `poseControl()` (roll body rotation + in-plane pitch/yaw anchor posing) live here. |
 | `src/hands.ts` | MediaPipe init (CDN WASM + model), `HAND_CONNECTIONS`, and `handPose()` (pitch/yaw proxies; roll is now measured in `control.ts`). |
 | `src/draw.ts` | 2D-canvas renderer (adaptive scale) + hand-landmark overlay. |
 | `src/oneEuro.ts` | One Euro filter, ported verbatim from the validated dot test. |
@@ -146,15 +147,16 @@ demonstrably moves the torso.
 - `ATTACH` — the four strings as data rows (name, `target` body, control-bar anchor, body anchor,
   `slack`). This is the seam for the future "customize the rig" feature: edit/add rows toward the
   British 9-string set (add knees). The two bar ends `target` the arms (`lArm`/`rArm`) = the hands;
-  head and lower back `target` the torso. All strings are non-rigid ropes drawn as drooping beziers.
-- `SOLVER_ITERATIONS` (`16`) — constraint solver iterations. Ropes are meant to be inextensible,
-  but at the default (~4) they stretch ~2.7% under a hard yank (a rubberband feel); `16` drops that
-  to ~0.2% (imperceptible). Cheap here (~5 bodies). Lower = springier strings, higher = stiffer.
-- `HEAD_SLACK` (`~1.0`, weight-bearer) / `HAND_SLACK` (`~1.15`, bar-ends→hands) / `LOOSE_ROPE_SLACK`
-  (`~1.22`, lower back) — per-string slack. Lower = tighter / more control; higher = droopier. Each rope exposes
-  its `maxLength` so the renderer computes live slack for the bezier sag.
-- `ROPE_SAG_GRAVITY` (`src/draw.ts`) — how far the loose-rope bezier control point sags downward
-  per world-unit of slack. Higher = droopier curve. (slack→0 ⇒ the curve straightens to the chord.)
+  head and lower back `target` the torso. Each string is a 10-link chain of length `restDist*slack`.
+- `SEG_COUNT` (`10`) / `SEG_RAD` / `SEG_DENSITY` — segments per chain, and how thin/light the links
+  are. More segments fold finer but stretch more under load; lighter links keep the chain from
+  overpowering the puppet but also stretch more (mass ratio).
+- `SOLVER_ITERATIONS` (`48`) — a 10-link series chain of light links needs many passes to stay
+  rigid. 48 holds ~1–2% stretch at normal speed (~7% under an aggressive combined move+tilt); it
+  plateaus past ~48 (the residual is series-compliance, not iteration count).
+- `HEAD_SLACK` (`~1.0`, weight-bearer) / `HAND_SLACK` (`~1.05`, bar-ends→hands) / `LOOSE_ROPE_SLACK`
+  (`~1.05`, lower back) — per-string chain length = `restDist * slack`. `1.0` = taut; `>1` adds fold
+  room so it drapes instead of spawning dead-straight.
 - `CONTROL_HALF_W` / `CONTROL_HALF_V` — how wide the control bar spreads the hand strings
   and how far its cross bar reaches for head/lower-back.
 - `WORLD_VIEW_HEIGHT`, `CONTROL_BASE_Y`, `CENTER_STRING_LEN`, `FLOOR_TOP` — rig geometry, head-rope length, floor height.

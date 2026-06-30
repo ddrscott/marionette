@@ -26,19 +26,24 @@ export const CONTROL_HALF_V = 0.5; // cross bar: half-length (head tip up, lower
 export const DEFAULT_LINEAR_DAMPING = 1.0;
 export const DEFAULT_ANGULAR_DAMPING = 1.0;
 
-export const CENTER_STRING_LEN = 6.2; // head rope length -> 51.7% of a 12u view (> 50% required)
+export const CENTER_STRING_LEN = 6.2; // head chain length -> 51.7% of a 12u view (> 50% required)
 
-// Rope slack: maxLength = restDist * slack. The head is near-taut (bears the torso weight, hangs it
-// at the right height) but still a rope, so it goes slack when the puppet rests. The limbs hang
-// loose — relaxed, not floppy-to-the-floor (PRD §2 deliberate tempo).
-const HEAD_SLACK = 1.0;
-const LOOSE_ROPE_SLACK = 1.22;
-const HAND_SLACK = 1.15; // hand strings: hang loose-ish but responsive to raising/tilting the bar
+// Strings are CHAINS of stiff segments (rigid spherical-joint links): inextensible like a real
+// string — so they don't stretch/rubberband — but free to FOLD at every hinge, so they go slack by
+// folding and never snap-bounce the way a single max-length rope does. `slack` makes the chain a
+// hair longer than the straight span so it can drape/fold rather than spawn dead-taut.
+const SEG_COUNT = 10;    // segments per string
+const SEG_RAD = 0.04;    // thin
+const SEG_DENSITY = 0.3; // light, so a chain can't overpower the puppet it hangs
+const HEAD_SLACK = 1.0;  // weight-bearer: taut
+const HAND_SLACK = 1.05; // a touch of fold room
+const LOOSE_ROPE_SLACK = 1.05;
 
 // Collision filtering (32-bit: high 16 = membership, low 16 = mask of groups it collides with).
 // Puppet parts collide with the FLOOR but not each other (no self-jitter); the floor collides only
-// with the puppet parts. Strings are pure rope joints now (no bodies of their own).
+// with the puppet parts; string segments collide with NOTHING (visual-only, never catch on things).
 const PUPPET_GROUP = 0x00010002; // member group 0, collides with group 1 (floor)
+const STRING_GROUP = 0x00010000; // member group 0, collides with nothing
 const FLOOR_GROUP  = 0x00020001; // member group 1, collides with group 0 (puppet)
 
 // Floor geometry (world units). Its top sits just above the bottom of the 12u view, so a lowered
@@ -52,15 +57,16 @@ const FLOOR_HALF_D = 1;  // z-thickness so the z-locked puppet (z=0) always over
 export interface Vec2 { x: number; y: number; }
 export interface Capsule { body: RAPIER_NS.RigidBody; half: number; rad: number; color: string; }
 
-// A puppet string: a non-rigid rope joint from a point on the control to a point on the torso.
-// Every string can go slack (one-sided max-length constraint) — it pulls when taut, never pushes.
+// A puppet string: a CHAIN of stiff segment bodies linked by spherical joints, from a point on the
+// control to a point on a body. Inextensible (rigid links) but folds at every hinge.
 export interface PuppetString {
   name: string;
   controlAnchor: Vec2;               // control-local (the NEUTRAL anchor; poseControl foreshortens it)
-  body: RAPIER_NS.RigidBody;         // body the string ends on
+  body: RAPIER_NS.RigidBody;         // body the chain ends on
   bodyAnchor: Vec2;                  // body-local
-  controlJoint: RAPIER_NS.ImpulseJoint; // the control-side joint; its anchor1 is updated for pitch/yaw
-  maxLength: number;                 // rope max-length (the slack budget; sag = maxLength - dist)
+  controlJoint: RAPIER_NS.ImpulseJoint; // the control->seg0 joint; its anchor1 is updated for pitch/yaw
+  segs: RAPIER_NS.RigidBody[];       // the chain links, control-side -> body-side (drawn as the string)
+  nominalLen: number;                // total chain length (sum of links) — its inextensible limit
 }
 
 // The four attach points. Spreading them across the control bar — instead of pinning
@@ -116,11 +122,12 @@ function posedAnchor(name: string, base: Vec2, pitch: number, yaw: number): Vec2
   return { x, y };
 }
 
-// Constraint solver iterations. The rope joints are meant to be inextensible, but at the default
-// (~4) they visibly stretch under a hard yank (~2.7%) — that overshoot-and-snap reads as a
-// rubberband. More iterations enforce the ropes more rigidly (16 → ~0.2% stretch, imperceptible).
-// Cheap here (only ~5 bodies / 4 joints).
-const SOLVER_ITERATIONS = 16;
+// Constraint solver iterations. The strings are 10-link chains — ten constraints in SERIES holding a
+// heavy torso with light links, so they give under load far more than a single rope did. The control
+// is One-Euro-smoothed so it never teleports; at realistic hand speed 48 iterations keeps chain
+// stretch ~1-2% (up to ~7% under an aggressive combined move+tilt). Beyond ~48 it plateaus (the
+// residual is the series-compliance of light links, not an iteration count), so 48 is the sweet spot.
+const SOLVER_ITERATIONS = 48;
 
 export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
   const world = new RAPIER.World({ x: 0, y: -gravityY, z: 0 });
@@ -129,9 +136,11 @@ export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
 
   // 2.5D plane lock on every dynamic body: free X/Y translation, no Z; rotate only about Z.
   // Damping is set so swings settle instead of oscillating forever (see DEFAULT_*_DAMPING).
-  const dyn = (cx: number, cy: number) =>
+  // zRot spawns the body pre-rotated about Z (used to align chain segments along a diagonal string).
+  const dyn = (cx: number, cy: number, zRot = 0) =>
     RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(cx, cy, 0)
+      .setRotation({ x: 0, y: 0, z: Math.sin(zRot / 2), w: Math.cos(zRot / 2) })
       .enabledTranslations(true, true, false)
       .enabledRotations(false, false, true)
       .setLinearDamping(DEFAULT_LINEAR_DAMPING)
@@ -184,6 +193,9 @@ export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
   spherical(torso, { x:  0.15, y: -0.5 }, rLeg, { x: 0, y: 0.45 });
 
   // ---- four control strings: head + lower-back to the torso, the two bar ends to the hands ----
+  // Each is a CHAIN of SEG_COUNT stiff links spawned along the control->body line and joined by
+  // spherical joints (control -> seg0 -> ... -> segN -> body). Rigid links => no stretch; the hinges
+  // => it folds and goes slack without ever snapping taut.
   const targets: Record<TargetName, RAPIER_NS.RigidBody> = { torso, lArm, rArm };
   const controlT = control.translation();
   const strings: PuppetString[] = ATTACH.map((spec) => {
@@ -191,21 +203,32 @@ export function buildRig(RAPIER: typeof RAPIER_NS, gravityY: number): Rig {
     const bodyT = body.translation();
     const top: Vec2 = { x: controlT.x + spec.controlAnchor.x, y: controlT.y + spec.controlAnchor.y };
     const bot: Vec2 = { x: bodyT.x + spec.bodyAnchor.x, y: bodyT.y + spec.bodyAnchor.y };
-    // Every string is a non-rigid rope (one-sided max-length): it pulls when taut, never pushes, and
-    // goes slack when the body is closer than maxLength (e.g. resting on the floor). The renderer
-    // reads maxLength back to bend the bezier; slack = maxLength - distance.
-    const restDist = Math.hypot(top.x - bot.x, top.y - bot.y);
-    const maxLength = restDist * spec.slack;
-    const controlJoint = world.createImpulseJoint(
-      RAPIER.JointData.rope(
-        maxLength,
-        { x: spec.controlAnchor.x, y: spec.controlAnchor.y, z: 0 },
-        { x: spec.bodyAnchor.x, y: spec.bodyAnchor.y, z: 0 },
-      ),
-      control, body,
-      true,
-    );
-    return { name: spec.name, controlAnchor: spec.controlAnchor, body, bodyAnchor: spec.bodyAnchor, controlJoint, maxLength };
+    const restDist = Math.hypot(bot.x - top.x, bot.y - top.y) || 1e-3;
+    const nominalLen = restDist * spec.slack;
+    const segHalf = nominalLen / SEG_COUNT / 2;
+    // segment local +Y points UP the string (toward the control); pre-rotate spawns so the chain
+    // starts straight along top->bot (handles diagonal hand strings without a snap on the first step).
+    const theta = Math.atan2((bot.x - top.x) / restDist, -(bot.y - top.y) / restDist);
+
+    const segs: RAPIER_NS.RigidBody[] = [];
+    let prev: RAPIER_NS.RigidBody = control;
+    let prevBottom: Vec2 = spec.controlAnchor;      // control-side anchor (local to the control body)
+    let controlJoint!: RAPIER_NS.ImpulseJoint;
+    for (let i = 0; i < SEG_COUNT; i++) {
+      const t = (i + 0.5) / SEG_COUNT;
+      const seg = world.createRigidBody(dyn(top.x + (bot.x - top.x) * t, top.y + (bot.y - top.y) * t, theta));
+      world.createCollider(
+        RAPIER.ColliderDesc.capsule(segHalf, SEG_RAD).setDensity(SEG_DENSITY).setCollisionGroups(STRING_GROUP),
+        seg,
+      );
+      segs.push(seg);
+      const j = spherical(prev, prevBottom, seg, { x: 0, y: segHalf }); // seg top (toward control)
+      if (i === 0) controlJoint = j;
+      prev = seg;
+      prevBottom = { x: 0, y: -segHalf };                                // seg bottom (toward body)
+    }
+    spherical(prev, prevBottom, body, spec.bodyAnchor);
+    return { name: spec.name, controlAnchor: spec.controlAnchor, body, bodyAnchor: spec.bodyAnchor, controlJoint, segs, nominalLen };
   });
 
   const posedAnchors = strings.map((s) => ({ ...s.controlAnchor }));
@@ -234,4 +257,5 @@ export function poseControl(rig: Rig, roll: number, pitch: number, yaw: number):
 export function setDamping(rig: Rig, linear: number, angular: number): void {
   const apply = (b: RAPIER_NS.RigidBody) => { b.setLinearDamping(linear); b.setAngularDamping(angular); };
   for (const p of rig.parts) apply(p.body);
+  for (const s of rig.strings) for (const seg of s.segs) apply(seg);
 }
