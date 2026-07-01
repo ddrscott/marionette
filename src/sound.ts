@@ -202,4 +202,17 @@ export const sfx = {
   beep: (urgent = false): void => { throttled("beep", 400, () => {
     blip(urgent ? 1200 : 880, 0.09, "square", urgent ? 0.06 : 0.045);
   }); },
+
+  // /keyboard pre-round countdown tick (3·2·1). Pitch RISES as it nears GO so the user can hear where
+  // they are without watching the timer. Caller fires it once per number, so no throttle.
+  count: (n: number): void => {
+    const step = 3 - Math.min(3, Math.max(1, n)); // 3→0, 2→1, 1→2
+    blip(560 + step * 150, 0.10, "square", 0.05);
+  },
+
+  // "GO" — the clock starts: a bright rising two-note stab, clearly distinct from the ticks.
+  go: (): void => {
+    blip(900, 0.12, "square", 0.06, 240);
+    setTimeout(() => blip(1350, 0.15, "triangle", 0.05), 70);
+  },
 };

@@ -12,17 +12,19 @@ import { sfx } from "./sound.ts"; // shared audio bus — one click sample for e
 // Two layouts, mobile-keyboard style. Keys are hit-tested by their real on-screen rectangles, so
 // differing key counts per row don't matter. Special keys: DEL (backspace), OK (submit), SPACE (wide
 // spacebar → " "), and the layer toggles "?123" (letters→symbols) / "ABC" (symbols→letters).
+// The "" cell is a flexible SPACER (not a key), used to push OK far from SPACE so it isn't fat-fingered
+// during typing. OK also needs a two-press confirm (see pushChar) since a stray press submits/clears.
 const LETTERS: string[][] = [
   ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"],
   ["A", "S", "D", "F", "G", "H", "J", "K", "L"],
   ["?123", "Z", "X", "C", "V", "B", "N", "M", "DEL"],
-  ["SPACE", "CLEAR", "OK"],
+  ["", "SPACE", "", "OK"], // centered spacebar (balanced spacers), OK kept on the far right
 ];
 const SYMBOLS: string[][] = [
   ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
   ["!", "@", "#", "$", "%", "^", "&", "*", "(", ")"], // each sits directly under its number (shift-row order)
   ["ABC", "-", "_", "+", "/", ":", ";", "'", "?", "DEL"],
-  ["SPACE", "CLEAR", "OK"],
+  ["", "SPACE", "", "OK"],
 ];
 const LAYOUTS = [LETTERS, SYMBOLS];
 
@@ -30,15 +32,13 @@ const LAYOUTS = [LETTERS, SYMBOLS];
 // (keyboard.ts, game.ts) route the SAME set into pushChar (parity, one buffer, DRY).
 export const SYMBOL_CHARS = "!@#$%^&*()-_+/:;'?";
 
-// Non-character keys never get appended verbatim: toggles switch the layer, SPACE inserts a space,
-// CLEAR empties the whole buffer (and fires onClear).
+// Non-character keys never get appended verbatim: toggles switch the layer, SPACE inserts a space.
 const isToggle = (k: string): boolean => k === "?123" || k === "ABC";
-const isCtrl = (k: string): boolean => k === "DEL" || k === "OK" || k === "CLEAR" || isToggle(k);
+const isCtrl = (k: string): boolean => k === "DEL" || k === "OK" || isToggle(k);
 
 export interface HandKeyboardOpts {
   maxLen?: number;                    // cap the buffer length (default: unbounded)
-  onSubmit?: (text: string) => void;  // fired on OK; the buffer is then cleared
-  onClear?: () => void;               // fired on CLEAR, AFTER the buffer is emptied (e.g. restart the round)
+  onSubmit?: (text: string) => void;  // fired on the CONFIRMED (second) OK press; the buffer is then cleared
   click?: ClickGesture;               // "fist" (default) or "pinch" (finger-to-thumb) to press a key
 }
 
@@ -50,7 +50,8 @@ export class HandKeyboard {
   private cells: Cell[] = [];
   private maxLen: number;
   private onSubmit?: (text: string) => void;
-  private onClear?: () => void;
+  private okArmed = false;     // OK is a two-press confirm: first press arms ("OK?"), second submits
+  private okTimer = 0;
   private pointer: HandCursor; // palm-centre cursor + fist/pinch-to-press (shared with every scene)
   private clickMode: ClickGesture;
   private prevDel = false;     // pinky-pinch (=DELETE) edge state, debounced separately from the press
@@ -65,7 +66,6 @@ export class HandKeyboard {
   constructor(private field: HTMLElement, private grid: HTMLElement, private cursor: HTMLElement, opts: HandKeyboardOpts = {}) {
     this.maxLen = opts.maxLen ?? Infinity;
     this.onSubmit = opts.onSubmit;
-    this.onClear = opts.onClear;
     this.clickMode = opts.click ?? "fist";
     this.pointer = new HandCursor({ click: opts.click });
     this.rows = [];
@@ -118,6 +118,7 @@ export class HandKeyboard {
       rowEl.className = "re-row";
       const cells = row.map((ch, ci) => {
         const c = document.createElement("div");
+        if (ch === "") { c.className = "re-gap"; rowEl.appendChild(c); return c; } // flexible spacer, not a key
         c.className = ch === "SPACE" ? "re-cell re-space" : isCtrl(ch) ? "re-cell re-ctrl" : "re-cell";
         c.textContent = ch === "SPACE" ? "space" : ch;
         rowEl.appendChild(c);
@@ -131,13 +132,34 @@ export class HandKeyboard {
 
   private setLayer(n: number): void {
     if (n === this.layer) return;
+    this.disarmOk();
     this.layer = n;
     this.buildLayer();
     this.highlight(-1, -1);
   }
 
+  // OK confirmation: the first press ARMS (relabels the key "OK?"), the second within a short window
+  // actually submits. Prevents a stray pinch from clearing the buffer / submitting.
+  private okCell(): HTMLElement | undefined {
+    return this.cells.find((c) => LAYOUTS[this.layer][c.r][c.c] === "OK")?.el;
+  }
+  private armOk(): void {
+    this.okArmed = true;
+    const el = this.okCell();
+    if (el) { el.classList.add("armed"); el.textContent = "OK?"; }
+    clearTimeout(this.okTimer);
+    this.okTimer = window.setTimeout(() => this.disarmOk(), 2500);
+  }
+  private disarmOk(): void {
+    if (!this.okArmed) return;
+    this.okArmed = false;
+    clearTimeout(this.okTimer);
+    const el = this.okCell();
+    if (el) { el.classList.remove("armed"); el.textContent = "OK"; }
+  }
+
   reset(): void {
-    this.buf = ""; this.prevDel = false;
+    this.buf = ""; this.prevDel = false; this.disarmOk();
     if (this.layer !== 0) { this.layer = 0; this.buildLayer(); } // back to letters on a fresh mount/use
     this.hideCursor(); this.highlight(-1, -1);
   }
@@ -155,9 +177,13 @@ export class HandKeyboard {
   // other value appends (up to maxLen).
   pushChar(ch: string): void {
     sfx.key(); // audible feedback on EVERY accepted key — both hand presses and physical typing
+    if (ch !== "OK" && this.okArmed) this.disarmOk(); // any other key cancels a pending OK confirm
     if (ch === "DEL") this.buf = this.buf.slice(0, -1);
-    else if (ch === "OK") { this.onSubmit?.(this.buf); this.buf = ""; }
-    else if (ch === "CLEAR") { this.buf = ""; this.onClear?.(); } // wipe the whole entry in one press
+    else if (ch === "OK") {
+      if (!this.okArmed) { this.armOk(); return; }    // first OK arms; needs a confirming second press
+      this.disarmOk();
+      this.onSubmit?.(this.buf); this.buf = "";
+    }
     else if (this.buf.length < this.maxLen) this.buf += ch;
   }
 

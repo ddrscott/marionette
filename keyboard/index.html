@@ -8,23 +8,38 @@
 </head>
 <body class="kb">
   <div id="kbstage">
+    <!-- Title pinned to the TOP + a how-to-play panel on the right. Both are positioned independently of
+         the bottom-anchored keyboard stack (see body.kb .kb-title / .kb-directions). -->
+    <div class="kb-title">AIR KEYBOARD FOR GERMAPHOBES</div>
+    <aside class="kb-directions" id="kbDirections">
+      <div class="kb-dir-title">how to play</div>
+      <ul>
+        <li>Raise your hand to the camera.</li>
+        <li>Pinch your finger to your thumb to press the highlighted key.</li>
+        <li>Move your hand out of frame to pause.</li>
+      </ul>
+    </aside>
+
+    <!-- The KEYBOARD is always the LOWEST element; every other bit of UI stacks ABOVE it (the wrap is
+         bottom-anchored, so DOM order top→bottom = screen top→bottom, keys last). -->
     <div class="kb-wrap">
-      <div class="kb-title">AIR KEYBOARD FOR GERMAPHOBES</div>
-      <!-- the phrase to type, with typed-progress highlighting (see src/keyboard.ts renderPrompt) -->
+      <!-- phrase (typed-progress) or the big initials slots — see src/keyboard.ts renderPrompt/renderInitials -->
       <div class="kb-prompt" id="kbPrompt"></div>
-      <div class="kb-typed" id="kbDisplay">&nbsp;</div>
       <div class="kb-timer" id="kbTimer">0.0s</div>
-      <!-- shared hand keyboard component mounts its keys here (see src/handkeyboard.ts) -->
-      <div class="re-grid" id="kbGrid"><div class="init-cursor" id="kbCursor"></div></div>
-      <div class="re-hint" id="kbHint">raise your hand to start &middot; type the phrase &middot; pinch to press, pinky-pinch = delete</div>
       <div class="kb-result" id="kbResult"></div>
-      <!-- state buttons: shown when paused (resume/reset/new) or done (reset/new). Hand-pressable
-           (registered via HandKeyboard.addPressTarget) as well as mouse/tap. -->
+      <!-- per-phrase global leaderboard (done screen; see src/keyboard.ts renderBoard) — ABOVE the keyboard -->
+      <div class="kb-board" id="kbBoard" hidden></div>
+      <!-- state buttons: paused (resume/reset/new), initials (submit/new), done (reset/new). Hand-pressable
+           (HandKeyboard.addPressTarget) + mouse/tap. -->
       <div class="kb-buttons" id="kbButtons">
         <button class="kb-btn" id="kbResume" type="button" hidden>resume</button>
         <button class="kb-btn" id="kbReset" type="button" hidden>reset</button>
         <button class="kb-btn" id="kbNew" type="button" hidden>new phrase</button>
+        <button class="kb-btn" id="kbSubmit" type="button" hidden>submit</button>
       </div>
+      <div class="re-hint" id="kbHint">raise your hand to start &middot; pinch each letter to type</div>
+      <!-- shared hand keyboard mounts its keys here (src/handkeyboard.ts) — LAST = lowest on screen -->
+      <div class="re-grid" id="kbGrid"><div class="init-cursor" id="kbCursor"></div></div>
     </div>
 
     <div id="camBox">
@@ -35,14 +50,6 @@
     <a class="home-link" href="/">&larr; home</a>
     <button id="fsBtn" class="fs-btn" type="button" title="Fullscreen" aria-label="Toggle fullscreen"></button>
     <div id="boot">loading model&hellip;</div>
-
-    <!-- DIAGNOSTIC-ONLY pinch/confidence overlay (see src/keyboard.ts updateDebug). Read-only: mirrors
-         the exact ratios + gate the detector uses. Remove this block + the #dbg CSS + updateDebug to
-         delete the overlay entirely; nothing else depends on it. -->
-    <div id="dbg">
-      <label class="dbg-head"><input type="checkbox" id="dbgToggle" checked /> debug</label>
-      <pre id="dbgBody"></pre>
-    </div>
   </div>
 
   <script type="module" src="/src/keyboard.ts"></script>

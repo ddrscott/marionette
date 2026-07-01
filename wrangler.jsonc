@@ -1,9 +1,20 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "marionette",
+  "main": "worker/index.ts",
   "compatibility_date": "2026-06-01",
-  // Purely client-side app: no Worker script (`main`), just the Vite build served as static assets.
-  "assets": { "directory": "./dist" },
+  // Worker serves the Vite build (ASSETS binding) AND the /api/leaderboard endpoint. run_worker_first
+  // routes /api/* to the Worker before the static-asset layer (so POST works, not a 405 from assets).
+  "assets": { "directory": "./dist", "binding": "ASSETS", "run_worker_first": ["/api/*"] },
+  // Per-phrase leaderboard store. database_id comes from `wrangler d1 create marionette-leaderboard`.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "marionette-leaderboard",
+      "database_id": "b4e619c8-40ea-48c9-ad2d-75305209f8fd",
+      "migrations_dir": "migrations"
+    }
+  ],
   "routes": [{ "pattern": "marionette.ljs.app", "custom_domain": true }],
   "observability": { "enabled": true }
 }

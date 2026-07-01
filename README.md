@@ -368,37 +368,76 @@ kills SFX *and* music at once.
 
 ## `/keyboard` — "Air Keyboard for Germaphobes"
 
-The keyboard scene is a timed typing mini-game **and** the tuning bed for the shared hand keyboard
-(`src/handkeyboard.ts`) + hand cursor.
+The keyboard scene is a timed typing mini-game. It's **camera-keyboard only** — the physical keyboard
+is intentionally disabled (thematically: a germaphobe won't touch anything). Every input (typing, state
+buttons, initials) is by air-pinch or mouse/tap; audio unlocks on the first `pointerdown`.
 
-- **Game state machine (`src/keyboard.ts`):** a rotating on-theme phrase (letters + spaces only, so no
-  layer switching) shown with typed-progress highlighting. Five phases:
+- **Game state machine (`src/keyboard.ts`):** a rotating on-theme phrase (shared `src/phrases.ts`;
+  letters + spaces only) shown with typed-progress highlighting. Six phases:
   - **waiting** → a hand entering the frame starts a **3·2·1 countdown**;
   - **countdown** → the clock hasn't started; a hand *leaving* cancels back to waiting;
-  - **running** → typing; timer accumulates; an **exact** match (DEL to fix) → done; a hand **leaving
-    the frame** (past a `GRACE_MS = 500` debounce that rides out detection flicker) → paused;
+  - **running** → typing; timer accumulates; an **exact** match (DEL to fix) → initials; a hand
+    **leaving the frame** (past a `GRACE_MS = 500` debounce that rides out detection flicker) → paused;
   - **paused** → timer frozen; buttons **resume · reset · new** (resume continues the elapsed time;
     reset redoes the same phrase; new picks a different one);
-  - **done** → **WPM + time** + persisted **best** (`localStorage handbattle.kb.bestMs`, `NEW BEST`
-    flag) + win fanfare; buttons **reset · new**.
+  - **initials** → enter 3 initials on the air keyboard, then **submit** (OK key or the submit button);
+  - **done** → posts the run to the **per-phrase global leaderboard** and shows that phrase's top-N as
+    a card **over the keyboard** (the activity area), your row highlighted; buttons **reset · new**.
+    A local **personal best** (`localStorage handbattle.kb.bestMs`) is tracked too.
 
-  Typing is **locked** (`kb.locked`) outside `running`, so the countdown/paused/done phases can't
-  corrupt the buffer — but the state buttons stay live. All buttons are **hand-pressable** (registered
-  via `HandKeyboard.addPressTarget`, which lets the pinch reach DOM buttons outside the key grid) as
-  well as mouse/tap; **Enter** resumes/advances and **Esc** resets.
-- **CLEAR key** (bottom row of both layers, beside SPACE + OK) wipes the whole entry in one press —
-  pressable by air-pinch, mouse click, or tap (routes through the single `pushChar` path via the
-  `onClear` hook), or the physical **Esc** key. On `/keyboard` it does a clean **redo of the current
-  phrase** (same prompt, re-counts down) — distinct from **new phrase**. On `/game` initials entry (no
-  `onClear`) it just empties the buffer.
+  Typing is **locked** (`kb.locked`) except in `running`/`initials`, so the other phases can't corrupt
+  the buffer — but the state buttons stay live. All buttons are **hand-pressable** (registered via
+  `HandKeyboard.addPressTarget`, which lets the pinch reach DOM buttons outside the key grid) + mouse/tap.
+- **Per-phrase global leaderboard** — a Cloudflare **Worker + D1** (`worker/index.ts`,
+  `/api/leaderboard`) keyed by the exact phrase, so each phrase has its own board (see
+  [Leaderboard backend](#leaderboard-backend-cloudflare-worker--d1)). The client (`src/leaderboard.ts`)
+  degrades gracefully to "offline" when there's no Worker (e.g. under `vite dev`).
+- **Wrong keys don't register.** While typing a phrase, a mis-hit is rejected (the buffer keeps only
+  the correct prefix) and the expected character **flashes red** so you just retype the right one — no
+  DEL dance. A space works the same way: the next slot is marked (`.p-space`) so "press space" reads
+  clearly. (`keyboard.ts` running case + `renderPrompt`.)
+- **OK is a two-press confirm** and sits on the far side of the bottom row from SPACE (a flexible
+  `.re-gap` spacer between them). First press arms it (`OK?`), a second within ~2.5s submits — so a
+  stray pinch can't wipe your entry. The dedicated **submit** button (initials) is one press. There is
+  no CLEAR key.
 - **Pinch detection is x/y-only** (see `gesture.ts`): MediaPipe's inferred `z` depth is unreliable and
   biased by where the hand sits in frame, so the finger→thumb pinch uses the in-plane (x,y) distance
-  normalized by hand scale. The `debug` overlay (toggle top-left) mirrors the exact ratios/gate.
+  normalized by hand scale. (This was found with a since-removed on-screen diagnostic overlay.)
 - **Symbols layer** is aligned to a standard shift-row: `! @ # $ % ^ & * ( )` sit directly under
   `1 2 3 4 5 6 7 8 9 0`. `SYMBOL_CHARS` (exported from `handkeyboard.ts`) keeps physical-keyboard
-  parity with the on-screen set.
+  parity on scenes that DO allow it (e.g. `/game` initials).
 - **Fullscreen button** (top-right) uses the shared Lucide icons in `src/icons.ts` (same toggle as
-  `/game`). Mouse/tap and physical typing drive the same buffer as the hand.
+  `/game`). Mouse/tap drives the same buffer as the hand.
+
+## Leaderboard backend (Cloudflare Worker + D1)
+
+The app is no longer purely static: `worker/index.ts` serves the Vite build via the **ASSETS** binding
+**and** hosts `/api/leaderboard` (GET top-N, POST a run) backed by **D1**. `wrangler.jsonc` sets
+`main`, the `assets` binding with `run_worker_first: ["/api/*"]` (so the API — incl. POST — runs before
+the static layer), and the `DB` D1 binding. The Worker is typechecked separately
+(`npm run typecheck:worker`, `worker/tsconfig.json`) and imports the phrase list from `src/phrases.ts`
+so it can validate + key scores by the exact phrase. Schema in `migrations/0001_init.sql`
+(`scores(phrase, initials, ms, created_at)`, indexed by `(phrase, ms)`).
+
+**One-time setup** (needs your Cloudflare auth):
+
+```sh
+npx wrangler d1 create marionette-leaderboard      # paste the printed database_id into wrangler.jsonc
+npx wrangler d1 migrations apply marionette-leaderboard --remote
+npm run deploy                                      # build + wrangler deploy
+```
+
+**Local full-stack dev** (the leaderboard only works through the Worker):
+
+```sh
+npm run build
+npx wrangler d1 migrations apply marionette-leaderboard --local
+npx wrangler dev                                   # serves the Worker + ./dist + local D1
+```
+
+Under plain `npm run dev` (Vite) there's no Worker, so the board shows "offline — not saved"; the game
+itself still plays. `npx wrangler deploy --dry-run` validates the config + bundles the Worker without
+deploying.
 
 ## Notes for the next pass
 

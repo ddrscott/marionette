@@ -208,10 +208,16 @@ body.kb .fs-btn { right: 14px; top: calc(12px + env(safe-area-inset-top, 0px)); 
 /* brief pressed flash on a mouse click / touch tap — reads as a press, separate from the hand's .on */
 .re-cell.pressed { border-color: var(--accent); color: var(--accent); background: rgba(79, 176, 170, .28); box-shadow: 0 0 20px rgba(79, 176, 170, .7); }
 .re-cell.re-ctrl { color: var(--dim); font-size: clamp(10px, 1.7cqmin, 18px); letter-spacing: .05em; }
-/* wide spacebar (both layers): grows to fill the bottom row, sitting beside CLEAR + OK like a real
-   keyboard. flex:5 keeps SPACE dominant (~71%) while leaving CLEAR/OK (flex:1 re-ctrl) readable. */
-.re-cell.re-space { flex: 5; color: var(--dim); font-size: clamp(10px, 1.7cqmin, 18px); letter-spacing: .18em; text-transform: uppercase; }
+/* wide spacebar (both layers). A flexible .re-gap spacer sits between it and OK so OK lands on the far
+   right, well clear of SPACE (it submits/clears, so a fat-finger during typing would hurt). */
+.re-cell.re-space { flex: 4; color: var(--dim); font-size: clamp(10px, 1.7cqmin, 18px); letter-spacing: .18em; text-transform: uppercase; }
+/* Bottom row is [gap, SPACE, gap, OK]. The LEFT gap (flex 2) balances the right gap + OK (flex 1 each),
+   so SPACE sits centered while OK stays on the far right. */
+.re-gap { flex: 1; pointer-events: none; }
+.re-row > .re-gap:first-child { flex: 2; }
 .re-cell.on { border-color: var(--accent); color: var(--accent); background: rgba(79, 176, 170, .14); box-shadow: 0 0 16px rgba(79, 176, 170, .55); }
+/* OK armed (first press): reads as "OK?" in danger colour until a confirming second press. */
+.re-cell.armed { border-color: var(--danger); color: var(--danger); background: rgba(224, 80, 80, .16); box-shadow: 0 0 16px rgba(224, 80, 80, .55); }
 .init-cursor { position: absolute; width: clamp(12px, 1.8cqmin, 22px); aspect-ratio: 1; margin: 0; translate: -50% -50%;
   border-radius: 50%; background: transparent; border: 2px solid var(--accent); box-shadow: 0 0 14px var(--accent);
   pointer-events: none; opacity: 0; transition: transform .06s ease, background .06s ease; }
@@ -235,7 +241,7 @@ body.kb .fs-btn { right: 14px; top: calc(12px + env(safe-area-inset-top, 0px)); 
 body.kb { overflow: hidden; background: radial-gradient(ellipse at 50% 32%, #17171f 0%, #0a0a0d 72%); height: 100vh; height: 100dvh; }
 /* Keyboard sits LOW (bottom-aligned) so pointing at it uses a relaxed, lower hand position instead of
    reaching high into the camera frame — the cursor maps hand-height linearly to screen-height. */
-body.kb #kbstage { position: fixed; left: 0; right: 0; top: 0; height: 100vh; height: 100dvh; container-type: size; display: grid; place-items: end center; padding-bottom: 10dvh; }
+body.kb #kbstage { position: fixed; left: 0; right: 0; top: 0; height: 100vh; height: 100dvh; container-type: size; display: grid; place-items: end center; padding-bottom: calc(3dvh + env(safe-area-inset-bottom, 0px)); }
 
 /* ---- /characters — roster demo: same 16:10 letterbox stage as the game ---- */
 body.chars { overflow: hidden; display: grid; place-items: center; background: var(--bg); height: 100vh; height: 100dvh; }
@@ -250,42 +256,73 @@ body.chars #charstage {
   box-shadow: 0 0 0 1px var(--line), 0 0 60px rgba(0, 0, 0, .7);
 }
 body.chars #camBox { right: auto; left: 50%; bottom: 10px; transform: translateX(-50%); width: 150px; height: 112px; opacity: .5; border-color: #2a2a32; }
-.kb-wrap { text-align: center; width: min(90cqw, 820px); }
-.kb-title { font: 400 clamp(20px, 3.4cqmin, 40px)/1 var(--display); letter-spacing: .06em; color: var(--accent); text-shadow: 0 0 24px rgba(79,176,170,.4); margin-bottom: 10px; }
-.kb-result { font: 700 clamp(14px, 2cqmin, 24px)/1 var(--ui); letter-spacing: .18em; color: #fff; margin-top: 18px; min-height: 24px; }
+/* The keyboard is the LOWEST element; everything else stacks ABOVE it. Flex column + one gap gives a
+   consistent vertical rhythm (no ad-hoc per-element margins); align-stretch lets the key grid fill width. */
+.kb-wrap { width: min(94vw, 820px); margin-inline: auto; display: flex; flex-direction: column; align-items: stretch;
+  gap: clamp(10px, 2.2cqmin, 22px); text-align: center; }
+.kb-wrap > * { margin: 0; } /* spacing is the flex gap, not margins (overrides shared .re-hint/.re-grid) */
+/* CRITICAL: that margin reset kills .re-grid's `margin: auto` centering, and its explicit width
+   (74cqw, sized for /game) exempts it from align-items:stretch → it'd pin LEFT. On this page the grid
+   simply fills the (already centered) wrap. */
+body.kb .re-grid { width: 100%; }
+/* Title pinned to the top-centre of the stage (out of the bottom-anchored stack). */
+.kb-title { font: 400 clamp(20px, 3.4cqmin, 40px)/1 var(--display); letter-spacing: .06em; color: var(--accent);
+  text-shadow: 0 0 24px rgba(79,176,170,.4); }
+body.kb .kb-title { position: absolute; top: calc(clamp(14px, 5dvh, 56px) + env(safe-area-inset-top, 0px));
+  left: 50%; transform: translateX(-50%); width: max-content; max-width: 92vw; z-index: 15; text-align: center; }
+/* How-to-play panel in the empty UPPER-RIGHT (content is bottom-anchored, so this zone is clear).
+   Hidden on narrow screens where it'd crowd the centred content. */
+.kb-directions { position: absolute; right: clamp(12px, 3vw, 44px); top: clamp(72px, 15dvh, 200px);
+  width: min(250px, 26vw); text-align: left; z-index: 15;
+  background: rgba(10,10,13,.5); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+.kb-directions .kb-dir-title { font: 700 clamp(11px, 1.4cqmin, 14px)/1 var(--ui); letter-spacing: .18em; text-transform: uppercase; color: var(--accent); margin-bottom: 12px; }
+.kb-directions ul { margin: 0; padding-left: 1.05em; display: flex; flex-direction: column; gap: 9px; }
+.kb-directions li { font: 500 clamp(11px, 1.4cqmin, 15px)/1.45 var(--ui); color: var(--dim); }
+/* Mobile portrait: camera docks CENTRED below the title (a saved drag position still overrides this
+   default), the directions become a centred card under it, and the hint gets brighter. Landscape
+   phones keep the desktop side-panel layout (it fits there). */
+@media (max-width: 820px) and (orientation: portrait) {
+  body.kb #camBox { right: auto; bottom: auto; left: 50%; transform: translateX(-50%);
+    top: calc(clamp(64px, 12dvh, 100px) + env(safe-area-inset-top, 0px)); width: 176px; height: 132px; }
+  .kb-directions { right: auto; left: 50%; transform: translateX(-50%); width: min(92vw, 380px);
+    top: calc(clamp(64px, 12dvh, 100px) + env(safe-area-inset-top, 0px) + 132px + 12px); }
+  body.kb .re-hint { color: rgba(216, 212, 204, .9); }
+}
+.kb-result { font: 700 clamp(14px, 2cqmin, 24px)/1 var(--ui); letter-spacing: .18em; color: #fff; min-height: 24px; }
 .kb-result .best { color: var(--accent); }
 
 /* ---- "Air Keyboard for Germaphobes" mini-game (src/keyboard.ts) ---- */
-.kb-prompt { font: 600 clamp(20px, 3.2cqmin, 40px)/1.35 var(--ui); letter-spacing: .08em; margin-top: 4px; white-space: pre-wrap; min-height: 1.35em; }
+.kb-prompt { font: 600 clamp(20px, 3.2cqmin, 40px)/1.35 var(--ui); letter-spacing: .08em; white-space: pre-wrap; min-height: 1.35em; }
 .kb-prompt .p-done { color: var(--accent); }                                   /* correctly typed so far */
 .kb-prompt .p-cur { color: #fff; border-bottom: 2px solid var(--accent); }      /* the next expected char */
-.kb-prompt .p-cur.p-err { color: var(--danger); border-bottom-color: var(--danger); background: rgba(224,80,80,.18); } /* a wrong char is typed here */
+.kb-prompt .p-cur.p-err { color: var(--danger); border-bottom-color: var(--danger); background: rgba(224,80,80,.18); } /* wrong key hit — retype the right one */
+.kb-prompt .p-cur.p-space { min-width: .9em; display: inline-block; border-bottom-width: 4px; } /* the next char is a SPACE — press space */
 .kb-prompt .p-rest { color: var(--dim); }                                      /* not typed yet */
-.kb-typed { font: 400 clamp(15px, 1.9cqmin, 26px)/1 var(--ui); letter-spacing: .1em; color: rgba(255,255,255,.55); margin-top: 10px; min-height: 1em; white-space: pre-wrap; }
-.kb-timer { font: 700 clamp(26px, 4cqmin, 52px)/1 var(--display); letter-spacing: .04em; color: #fff; margin-top: 8px; }
-.kb-buttons { margin-top: 14px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; min-height: 44px; }
+/* initials entry: big arcade-style 3-slot display so each typed letter pops (empty slots = underscores) */
+.kb-prompt .ini-slots { display: inline-flex; gap: clamp(16px, 5cqmin, 40px); align-items: baseline; }
+.kb-prompt .ini-slot { min-width: clamp(38px, 8cqmin, 84px); text-align: center; color: var(--dim);
+  font: 400 clamp(52px, 11cqmin, 104px)/1 var(--display); letter-spacing: 0; border-bottom: 4px solid var(--line); }
+.kb-prompt .ini-slot.filled { color: #fff; border-bottom-color: var(--accent); text-shadow: 0 0 26px rgba(255,255,255,.4); }
+.kb-timer { font: 700 clamp(26px, 4cqmin, 52px)/1 var(--display); letter-spacing: .04em; color: #fff; }
+.kb-buttons { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; min-height: 44px; }
 .kb-btn { font: 700 clamp(12px, 1.6cqmin, 18px)/1 var(--ui); letter-spacing: .12em; text-transform: uppercase;
   color: var(--accent); background: transparent; border: 1px solid var(--accent); border-radius: 6px; padding: 10px 20px; cursor: pointer; }
 .kb-btn:hover, .kb-btn.hand-hover { background: rgba(79,176,170,.14); box-shadow: 0 0 16px rgba(79,176,170,.35); }
 .kb-btn.hand-hover { border-color: var(--accent); color: #fff; } /* hand cursor is over it — pinch to click */
 .kb-btn[hidden] { display: none; }
 
-/* ---- /keyboard DIAGNOSTIC pinch/confidence overlay (src/keyboard.ts updateDebug) — read-only HUD.
-   Self-contained: this rule + the #dbg block in keyboard/index.html + updateDebug are the whole feature. */
-#dbg {
-  position: fixed; left: 12px; top: 12px; z-index: 20;
-  min-width: 220px; padding: 8px 10px;
-  background: rgba(10, 10, 13, .82); border: 1px solid var(--line); border-radius: 4px;
-  backdrop-filter: blur(2px);
-}
-#dbg .dbg-head { display: flex; align-items: center; gap: 6px; margin: 0 0 6px;
-  font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); cursor: pointer; }
-#dbg .dbg-head input { accent-color: var(--accent); cursor: pointer; }
-#dbg pre { margin: 0; font: 500 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: var(--fg); white-space: pre; }
-#dbg.off pre { display: none; }
-/* inline state tokens emitted by updateDebug */
-#dbg .ok { color: var(--teal); }
-#dbg .bad { color: var(--danger); }
-#dbg .hot { color: var(--rust); font-weight: 700; }
-#dbg .mut { color: var(--dim); }
+/* ---- per-phrase global leaderboard (src/keyboard.ts renderBoard) — an in-flow card ABOVE the keyboard
+   (done screen). Capped height + scroll so a long board never pushes the keys off the bottom. */
+.kb-board { align-self: center; width: min(440px, 100%); max-height: 34dvh; overflow: auto;
+  background: rgba(10,10,13,.6); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px;
+  display: flex; flex-direction: column; gap: 3px; }
+.kb-board[hidden] { display: none; }
+.kb-board .lb-head { font: 600 clamp(10px, 1.4cqmin, 13px)/1 var(--ui); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; }
+.kb-board .lb-empty { font: 600 clamp(12px, 1.6cqmin, 16px)/1.4 var(--ui); color: var(--dim); padding: 8px 0; }
+.kb-board .lb-row { display: grid; grid-template-columns: 2.2em 1fr auto; align-items: baseline; gap: 10px;
+  font: 500 clamp(14px, 1.9cqmin, 20px)/1.5 var(--ui); color: rgba(255,255,255,.8); padding: 2px 8px; border-radius: 4px; }
+.kb-board .lb-row .lb-rank { color: var(--dim); text-align: right; }
+.kb-board .lb-row .lb-ini { letter-spacing: .22em; font-weight: 700; }
+.kb-board .lb-row .lb-t { color: #fff; font-variant-numeric: tabular-nums; }
+.kb-board .lb-row.me { background: rgba(79,176,170,.16); color: #fff; box-shadow: 0 0 12px rgba(79,176,170,.3); }
+.kb-board .lb-row.me .lb-ini, .kb-board .lb-row.me .lb-rank { color: var(--accent); }

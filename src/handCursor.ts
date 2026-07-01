@@ -19,10 +19,13 @@ export type ClickGesture = "fist" | "pinch";
 export interface HandInput { landmarks: Landmark[]; world?: Landmark[]; score?: number; }
 
 // Fraction inset per side: the inner (1-2m) of the frame maps LINEARLY onto the full [0,1] screen, so
-// a bigger margin = more gain (less hand travel to reach an edge). Kept gentle (near-linear) because
-// consumers map this straight onto the whole screen — the on-screen keyboard/cards are a sub-region of
-// it, so they already need less than full reach. ~1.4× gain: the central 70% of the frame → full screen.
-export const DEFAULT_CURSOR_MARGIN = 0.15;
+// a bigger margin = more gain (less hand travel to reach an edge). Consumers map this straight onto
+// the whole screen — the on-screen keyboard/cards are a sub-region of it, so they already need less
+// than full reach. The central 50% of the camera frame spans the full browser width (m = 0.25): a
+// webcam's FOV is wide, so mapping most of it (the old 70–80%) forced an arm-sweep to reach edge keys
+// (see the mobile "reach for A" complaint). At 50% a comfortable wrist-scale motion covers the whole
+// keyboard; the applied filter keeps the extra gain from reading as jitter. Tune HERE, both axes.
+export const DEFAULT_CURSOR_MARGIN = 0.25;
 
 // Reject a click when MediaPipe's per-hand confidence is below this — shaky/ambiguous frames are where
 // false pinches come from. Shared so every click gesture (cursor click + the keyboard's pinky-delete)
