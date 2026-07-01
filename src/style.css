@@ -20,6 +20,9 @@ body {
   background: var(--bg);
   color: var(--fg);
   font: 500 15px/1.5 var(--ui);
+  /* Guard: clip any stray horizontal overflow (e.g. a browser-extension-injected wide element) so it
+     can never widen the page and shift `margin: 0 auto` centering (the landing "off-center" report). */
+  overflow-x: hidden;
 }
 .wrap { display: grid; grid-template-columns: 1fr 300px; height: 100vh; }
 
