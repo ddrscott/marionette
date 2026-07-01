@@ -1,6 +1,6 @@
 # Work Queue
 
-- [ ] Near-straight strings at attach — normalize the capture to a reference relaxed-hand pose so the real chains are near-taut (small give) at attach, killing the dead-zone slack; not a render fix — see [attach-slack-taut.md](attach-slack-taut.md)
+- [-] Near-straight strings at attach — normalize the capture to a reference relaxed-hand pose so the real chains are near-taut (small give) at attach, killing the dead-zone slack; not a render fix — see [attach-slack-taut.md](attach-slack-taut.md)
 
 - [x] Redesign the 10 characters to be radically distinct (orientation, limb count, body size, limb length — kill the biped sameness; keep ≥5 cuttable strings) — see [distinct-rigs.md](distinct-rigs.md)
 
