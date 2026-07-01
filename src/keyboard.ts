@@ -5,6 +5,9 @@ import { initHands, isQualityTier, DEFAULT_QUALITY, type QualityTier } from "./h
 import { drawHands, TEAM_TEAL } from "./draw.ts";
 import { HandKeyboard, SYMBOL_CHARS } from "./handkeyboard.ts";
 import { makeCamDraggable } from "./dragCam.ts";
+import { unlock, setMuted } from "./sound.ts";
+
+const LS_MUTED = "handbattle.audio.muted";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -29,7 +32,15 @@ function sizeOverlay(): void { camOverlay.width = camOverlay.clientWidth; camOve
     // Test bed uses the finger-to-thumb PINCH click (the game keeps fist-to-press).
     const kb = new HandKeyboard($("kbstage"), $("kbGrid"), $("kbCursor"), { click: "pinch", onSubmit: (t) => { result.textContent = `SUBMITTED  ${t || "(empty)"}`; } });
 
+    // WebAudio autoplay policy: a webcam-driven pinch is NOT a gesture, so the key click can't play
+    // until a real user gesture unlocks the shared context. Honor the saved global mute (no mute button
+    // here), then unlock on the first pointer or key — after that, hand-press clicks sound too.
+    setMuted(localStorage.getItem(LS_MUTED) === "1");
+    const doUnlock = (): void => { unlock(); removeEventListener("pointerdown", doUnlock); };
+    addEventListener("pointerdown", doUnlock);
+
     addEventListener("keydown", (e) => {
+      unlock(); // a physical key IS a gesture — unlock so this and later hand presses can click
       if (e.key === "Backspace") { kb.pushChar("DEL"); e.preventDefault(); return; }
       if (e.key === "Enter") { kb.pushChar("OK"); return; }
       if (e.key === " ") { kb.pushChar(" "); e.preventDefault(); return; } // spacebar → space (don't scroll)

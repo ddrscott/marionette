@@ -7,6 +7,7 @@
 // any screen can mount it; /keyboard is its test bed; /game uses it (maxLen 3) for record initials.
 import { HandCursor, CLICK_MIN_CONFIDENCE, type ClickGesture, type HandInput } from "./handCursor.ts";
 import { pinchedFinger } from "./gesture.ts";
+import { sfx } from "./sound.ts"; // shared audio bus — one click sample for every accepted key
 
 // Two layouts, mobile-keyboard style. Keys are hit-tested by their real on-screen rectangles, so
 // differing key counts per row don't matter. Special keys: DEL (backspace), OK (submit), SPACE (wide
@@ -108,6 +109,7 @@ export class HandKeyboard {
   // Act on a key from ANY source (physical keyboard or the hand): DEL backspaces, OK submits, any
   // other value appends (up to maxLen).
   pushChar(ch: string): void {
+    sfx.key(); // audible feedback on EVERY accepted key — both hand presses and physical typing
     if (ch === "DEL") this.buf = this.buf.slice(0, -1);
     else if (ch === "OK") { this.onSubmit?.(this.buf); this.buf = ""; }
     else if (this.buf.length < this.maxLen) this.buf += ch;
@@ -137,7 +139,7 @@ export class HandKeyboard {
     this.highlight(hit ? hit.r : -1, hit ? hit.c : -1);
     if (cs.clicked && hit) { // pinch/fist over a key to press it
       const key = LAYOUTS[this.layer][hit.r][hit.c];
-      if (isToggle(key)) this.setLayer(this.layer === 0 ? 1 : 0); // ?123 ⇄ ABC — never types a char
+      if (isToggle(key)) { sfx.key(); this.setLayer(this.layer === 0 ? 1 : 0); } // ?123 ⇄ ABC — clicks but never types a char
       else this.pushChar(key === "SPACE" ? " " : key);           // SPACE → " "; DEL/OK/char as usual
     }
 

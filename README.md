@@ -271,7 +271,7 @@ never waits on inference:
 | `src/draw.ts` | 2D-canvas renderer (`clear()` + per-puppet `drawPuppet()`, adaptive scale, team-coloured strings + control points, numbered 1–5) + the attach-ritual `drawPrompt()` (the `#808080`-tinted hand outline above each puppet) and `drawFingerPoints()` (live calibration points) + both-hands landmark overlay (`drawHands`) + physics-debug overlay. |
 | `public/hand-left.svg` | The attach-ritual prompt art (a left hand). Re-tinted to `#808080` on an offscreen canvas at load and mirrored for the right side. |
 | `src/oneEuro.ts` | One Euro filter, ported verbatim from the validated dot test. |
-| `src/sound.ts` | **Game-only** procedural WebAudio SFX. One shared `AudioContext` + master `GainNode` bus; `blip`/`noise`/`throttled` primitives + a named `sfx` map (slice, clash, attach, ko, round, fight, time, win, beep). `unlock()` (gesture-gated) and `setMuted()` drive the whole graph. No assets, no deps. |
+| `src/sound.ts` | **Game-only** procedural WebAudio SFX. One shared `AudioContext` + master `GainNode` bus; `blip`/`noise`/`throttled` primitives + a named `sfx` map (slice, clash, attach, ko, round, fight, time, win, beep). `unlock()` (gesture-gated) and `setMuted()` drive the whole graph. Plus one decoded-sample one-shot — `sfx.key()` plays cached `AudioBuffer`s (`/assets/kb-click.wav`) through the same bus. No deps. |
 | `src/music.ts` | **Game-only** adaptive chiptune on a lookahead scheduler (own `setInterval`, off the render loop). Two tracks share sound.ts's bus: a calm `MENU_SONG` and an adaptive `FIGHT_SONG` (`setIntensity(0..1)` tiers instruments in + climbs tempo). `startMenu()`/`startCombat()` crossfade so a switch never overlaps. |
 | `puppet-spike-1.html` | Original single-file spike, kept for reference. |
 
@@ -336,10 +336,19 @@ Control-path tunables in `src/main.ts`:
 
 ## Audio (game only)
 
-`/game` has procedural WebAudio — **no audio assets, no new deps** (`/harness` is silent and untouched).
+`/game` has procedural WebAudio — **no new deps** (`/harness` is silent and untouched).
 `src/sound.ts` synthesises every SFX from oscillators + noise bursts; `src/music.ts` is an adaptive
 chiptune on a lookahead scheduler. Both share **one `AudioContext` + master gain bus**, so the mute
 kills SFX *and* music at once.
+
+- **Keyboard click (`sfx.key()`)** — the one **decoded-sample** SFX. `public/assets/kb-click.wav`
+  (served at the absolute URL **`/assets/kb-click.wav`** — subpath scenes) is fetched + `decodeAudioData`'d
+  **once** on `unlock()` and cached as an `AudioBuffer`; each press spins a fresh `AudioBufferSourceNode`
+  through the master bus (so mute + level apply), fire-and-forget with a ~30ms throttle. It fires from
+  `HandKeyboard.pushChar` — the single chokepoint for **every** accepted key (letters/digits/symbols/
+  space/DEL/OK) from **both** hand presses and physical typing — plus the `?123`/`ABC` layer toggle.
+  `/keyboard` (no mute button) unlocks the context on its first `pointerdown`/`keydown` and honors the
+  saved mute; `/game` initials entry gets the click for free.
 
 - **Unlock (browser autoplay policy):** WebAudio can't start without a user gesture, and this game is
   hands-only (a webcam frame is *not* a gesture). So nothing plays until the first `click` / `keydown`

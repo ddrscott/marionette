@@ -24,6 +24,7 @@ export function unlock(): void {
   }
   if (ctx.state === "suspended") void ctx.resume();
   unlocked = true;
+  void loadSample("kbClick"); // kick off the one-shot sample decode now that we have a live ctx
 }
 
 // --- shared accessors for music.ts (same bus) ---
@@ -88,8 +89,56 @@ function throttled(key: string, windowMs: number, fn: () => void): boolean {
   return true;
 }
 
+// --- one-shot sample player (the first decoded-audio SFX; everything else here is procedural) ---
+// Absolute URLs — scenes live under /game, /characters, /keyboard subpaths, so a relative path would
+// resolve wrong. Each sample is fetched + decoded ONCE and cached as an AudioBuffer; playback spins up
+// a fresh AudioBufferSourceNode per call (cheap, GC'd on end) routed through the master bus so the
+// global mute + volume already apply.
+const SAMPLE_URLS: Record<string, string> = { kbClick: "/assets/kb-click.wav" };
+const _buffers: Record<string, AudioBuffer> = Object.create(null);
+const _loading: Record<string, Promise<void> | undefined> = Object.create(null);
+
+// Fetch + decode a sample once (lazy, cached). Guarded for no-ctx/pre-unlock; swallows errors so a
+// missing/failed asset never throws on the hot path.
+async function loadSample(name: keyof typeof SAMPLE_URLS | string): Promise<void> {
+  if (!ctx || _buffers[name]) return;
+  if (_loading[name]) return _loading[name];
+  const url = SAMPLE_URLS[name];
+  if (!url) return;
+  const audioCtx = ctx;
+  _loading[name] = (async () => {
+    try {
+      const res = await fetch(url);
+      const bytes = await res.arrayBuffer();
+      _buffers[name] = await audioCtx.decodeAudioData(bytes);
+    } catch { /* asset missing/decoding failed — stay silent, never throw on a press */ }
+    finally { _loading[name] = undefined; }
+  })();
+  return _loading[name];
+}
+
+// Play a cached sample fire-and-forget. No-ops silently if not unlocked or the buffer isn't decoded yet
+// (kicks off the load so it's ready next time). `vol` sits it under the music.
+function playSample(name: keyof typeof SAMPLE_URLS | string, vol = 0.5): void {
+  if (!unlocked || !ctx) return;
+  const dest = out();
+  if (!dest) return;
+  const buf = _buffers[name];
+  if (!buf) { void loadSample(name); return; } // not decoded yet — arm it; first press may be silent
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  const g = ctx.createGain();
+  g.gain.value = vol;
+  src.connect(g).connect(dest);
+  src.start(ctx.currentTime);
+}
+
 // Named fighter voices — each a little layered synth recipe. Wired from the /game layer.
 export const sfx = {
+  // The keyboard click (decoded sample) — every accepted hand/physical key routes through here.
+  // A tiny min-gap throttle avoids a double-fire but keeps rapid typing snappy and overlapping.
+  key: (): void => { throttled("key", 30, () => playSample("kbClick", 0.5)); },
+
   // The money SFX: a string is severed. A sharp filtered "shff" noise burst + a fast descending
   // blip = a downward slice. Throttled a touch so a burst of cuts still reads as distinct hits.
   slice: (): void => { throttled("slice", 60, () => {
