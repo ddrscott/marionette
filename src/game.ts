@@ -6,7 +6,7 @@ import { Match, MAX_STRINGS, WINS_NEEDED, type GamePhase } from "./match.ts";
 import { isQualityTier, DEFAULT_QUALITY, type QualityTier } from "./hands.ts";
 import { unlock, audioReady, getMuted, setMuted, sfx } from "./sound.ts";
 import { music } from "./music.ts";
-import { HandInitials } from "./initials.ts";
+import { HandKeyboard } from "./handkeyboard.ts";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -172,14 +172,14 @@ function setupAudio(stage: Stage, match: Match): () => void {
 
     const match = new Match();
 
-    // Initials on a record break — hand-driven (finger-gun: point + tuck thumb) OR keyboard, both
-    // feeding one shared buffer. Gated on match.awaitingInitials so normal keys (M-mute) are unaffected.
-    const picker = new HandInitials($("initGrid"), $("initCursor"), (initials) => match.submitInitials(initials));
+    // Initials on a record break — the shared hand keyboard (finger-gun) capped to 3, OR a physical
+    // keyboard, both feeding one buffer. Gated on awaitingInitials so normal keys (M-mute) are unaffected.
+    const kb = new HandKeyboard($("initGrid"), $("initCursor"), { maxLen: 3, onSubmit: (t) => match.submitInitials(t) });
     addEventListener("keydown", (e) => {
       if (!match.awaitingInitials) return;
-      if (e.key === "Backspace") { picker.pushChar("DEL"); e.preventDefault(); return; }
-      if (e.key === "Enter") { match.submitInitials(picker.buf); picker.reset(); return; }
-      if (/^[a-z]$/i.test(e.key)) picker.pushChar(e.key.toUpperCase());
+      if (e.key === "Backspace") { kb.pushChar("DEL"); e.preventDefault(); return; }
+      if (e.key === "Enter") { kb.pushChar("OK"); return; }
+      if (/^[a-z]$/i.test(e.key)) kb.pushChar(e.key.toUpperCase());
     });
 
     setupFullscreen();
@@ -187,17 +187,17 @@ function setupAudio(stage: Stage, match: Match): () => void {
     let wasAwaiting = false;
     stage.onFrame = (now) => {
       match.update(stage, now);
-      renderHud(match, picker.buf);
+      renderHud(match, kb.buf);
       audioTick();
       if (match.awaitingInitials) {
-        if (!wasAwaiting) picker.reset(); // fresh cursor / thumb-edge state on a new record break
+        if (!wasAwaiting) kb.reset(); // fresh cursor / thumb-edge state on a new record break
         // drive the finger-gun cursor from the winner's hand (fall back to any present hand)
         const w = match.matchWinner;
         const lm = (w !== null && stage.handStates[w].landmarks) ? stage.handStates[w].landmarks
           : (stage.handStates[0].landmarks ?? stage.handStates[1].landmarks);
-        picker.update(lm, now);
+        kb.update(lm, now);
         wasAwaiting = true;
-      } else if (wasAwaiting) { picker.hideCursor(); wasAwaiting = false; }
+      } else if (wasAwaiting) { kb.hideCursor(); wasAwaiting = false; }
     };
 
     $("boot").remove();

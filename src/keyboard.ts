@@ -1,16 +1,16 @@
-// /keyboard — an isolated test bench for the hand-driven initials picker (finger-gun) so it can be
-// tuned without playing a whole match to trigger a record break. Just hand detection + the picker;
-// no physics/puppets. Keyboard also works.
+// /keyboard — test bed for the shared hand keyboard component (src/handkeyboard.ts). Just hand
+// detection + the keyboard; no physics/game. Use it to tune the finger-gun; other screens mount the
+// same component. Physical keyboard works too.
 import { initHands, isQualityTier, DEFAULT_QUALITY, type QualityTier } from "./hands.ts";
 import { drawHands, TEAM_TEAL } from "./draw.ts";
-import { HandInitials } from "./initials.ts";
+import { HandKeyboard } from "./handkeyboard.ts";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 const video = $<HTMLVideoElement>("cam");
 const camOverlay = $<HTMLCanvasElement>("camOverlay");
 const overlayCtx = camOverlay.getContext("2d")!;
-const display = $("kbInitials");
+const display = $("kbDisplay");
 const result = $("kbResult");
 
 const LS_DEVICE = "handbattle.cam.deviceId";
@@ -24,12 +24,13 @@ function sizeOverlay(): void { camOverlay.width = camOverlay.clientWidth; camOve
     const tier: QualityTier = isQualityTier(savedQuality) ? savedQuality : DEFAULT_QUALITY;
     const hands = await initHands(video, { deviceId: localStorage.getItem(LS_DEVICE), tier });
 
-    const picker = new HandInitials($("initGrid"), $("initCursor"), (initials) => { result.textContent = `ENTERED  ${initials}`; });
+    // Generic mount — no maxLen; OK just echoes what was submitted. Any screen can mount it like this.
+    const kb = new HandKeyboard($("kbGrid"), $("kbCursor"), { onSubmit: (t) => { result.textContent = `SUBMITTED  ${t || "(empty)"}`; } });
 
     addEventListener("keydown", (e) => {
-      if (e.key === "Backspace") { picker.pushChar("DEL"); e.preventDefault(); return; }
-      if (e.key === "Enter") { if (picker.buf) { result.textContent = `ENTERED  ${picker.buf.padEnd(3, "A")}`; picker.reset(); } return; }
-      if (/^[a-z]$/i.test(e.key)) picker.pushChar(e.key.toUpperCase());
+      if (e.key === "Backspace") { kb.pushChar("DEL"); e.preventDefault(); return; }
+      if (e.key === "Enter") { kb.pushChar("OK"); return; }
+      if (/^[a-z]$/i.test(e.key)) kb.pushChar(e.key.toUpperCase());
     });
 
     sizeOverlay();
@@ -41,8 +42,8 @@ function sizeOverlay(): void { camOverlay.width = camOverlay.clientWidth; camOve
       hands.pump(now);
       const d = hands.latest[0]; // first detected hand drives the cursor
       const lm = d ? d.landmarks : null;
-      picker.update(lm, now);
-      display.textContent = picker.buf.padEnd(3, "_").split("").join(" ");
+      kb.update(lm, now);
+      display.textContent = kb.buf || " ";
       drawHands(overlayCtx, camOverlay.width, camOverlay.height, [lm], [TEAM_TEAL]);
       requestAnimationFrame(loop);
     };

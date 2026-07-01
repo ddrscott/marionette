@@ -3,17 +3,17 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Initials — finger-gun test</title>
+  <title>Hand Keyboard — test bed</title>
   <link rel="stylesheet" href="/src/style.css" />
 </head>
 <body class="kb">
   <div id="kbstage">
     <div class="kb-wrap">
-      <div class="kb-title">FINGER-GUN INITIALS</div>
-      <div class="re-initials" id="kbInitials">_ _ _</div>
-      <!-- A–Z + DEL grid; cells built in keyboard.ts. Point with the index finger, tuck the thumb to pick. -->
-      <div class="re-grid" id="initGrid"><div class="init-cursor" id="initCursor"></div></div>
-      <div class="re-hint">point &amp; tuck your thumb to pick &middot; or type</div>
+      <div class="kb-title">HAND KEYBOARD</div>
+      <div class="re-initials" id="kbDisplay">&nbsp;</div>
+      <!-- shared hand keyboard component mounts its QWERTY keys here (see src/handkeyboard.ts) -->
+      <div class="re-grid" id="kbGrid"><div class="init-cursor" id="kbCursor"></div></div>
+      <div class="re-hint">point &amp; tuck your thumb to pick &middot; DEL / OK &middot; or type</div>
       <div class="kb-result" id="kbResult"></div>
     </div>
 
