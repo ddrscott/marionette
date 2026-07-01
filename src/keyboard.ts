@@ -25,7 +25,7 @@ function sizeOverlay(): void { camOverlay.width = camOverlay.clientWidth; camOve
     const hands = await initHands(video, { deviceId: localStorage.getItem(LS_DEVICE), tier });
 
     // Generic mount — no maxLen; OK just echoes what was submitted. Any screen can mount it like this.
-    const kb = new HandKeyboard($("kbGrid"), $("kbCursor"), { onSubmit: (t) => { result.textContent = `SUBMITTED  ${t || "(empty)"}`; } });
+    const kb = new HandKeyboard($("kbstage"), $("kbGrid"), $("kbCursor"), { onSubmit: (t) => { result.textContent = `SUBMITTED  ${t || "(empty)"}`; } });
 
     addEventListener("keydown", (e) => {
       if (e.key === "Backspace") { kb.pushChar("DEL"); e.preventDefault(); return; }

@@ -1,13 +1,14 @@
 // A reusable hand-driven QWERTY keyboard. Uses the shared camera-input model (handCursor.ts): the
-// palm centre is a cursor over the QWERTY grid, and CLOSING your fist presses the pointed key. DEL
-// backspaces, OK submits. `pushChar` lets a physical keyboard drive the SAME buffer. Generic — any
-// screen can mount it; the buffer is plain text, and `maxLen` / `onSubmit` are the only per-use
-// config. /keyboard is its test bed; /game uses it (maxLen 3) for the record-break initials.
+// palm centre is a cursor that maps LINEARLY onto the whole `field` (the stage/screen) — NOT scaled to
+// fit the keyboard — and CLOSING your fist presses whatever key sits under it. So a key is where it
+// looks: you move your hand to that spot on screen. DEL backspaces, OK submits. `pushChar` lets a
+// physical keyboard drive the SAME buffer. Generic — any screen can mount it; /keyboard is its test
+// bed; /game uses it (maxLen 3) for the record-break initials.
 import type { Landmark } from "./hands.ts";
 import { HandCursor } from "./handCursor.ts";
 
-// QWERTY rows ending in the control keys. Each row is laid out full-width, so a row's keys evenly
-// divide the grid width and the cursor's gx maps onto them regardless of the differing key counts.
+// QWERTY rows ending in the control keys. Laid out full-width; keys are hit-tested by their real
+// on-screen rectangles, so differing key counts per row don't matter.
 const ROWS: string[][] = [
   ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"],
   ["A", "S", "D", "F", "G", "H", "J", "K", "L"],
@@ -19,30 +20,38 @@ export interface HandKeyboardOpts {
   onSubmit?: (text: string) => void;  // fired on OK; the buffer is then cleared
 }
 
+interface Cell { el: HTMLElement; r: number; c: number; }
+
 export class HandKeyboard {
   buf = "";
   private rows: HTMLElement[][];
+  private cells: Cell[] = [];
   private maxLen: number;
   private onSubmit?: (text: string) => void;
   private pointer = new HandCursor(); // palm-centre cursor + fist-to-press (shared with every scene)
 
-  // Mounts the QWERTY rows into `grid` (before `cursor`, so the cursor stays on top).
-  constructor(grid: HTMLElement, private cursor: HTMLElement, opts: HandKeyboardOpts = {}) {
+  // `field` is the region the cursor maps onto (the visible stage/screen: #kbstage on /keyboard,
+  // #stage on /game). `grid` hosts the QWERTY keys; `cursor` is the dot (positioned in screen space).
+  constructor(private field: HTMLElement, grid: HTMLElement, private cursor: HTMLElement, opts: HandKeyboardOpts = {}) {
     this.maxLen = opts.maxLen ?? Infinity;
     this.onSubmit = opts.onSubmit;
-    this.rows = ROWS.map((row) => {
+    this.rows = ROWS.map((row, ri) => {
       const rowEl = document.createElement("div");
       rowEl.className = "re-row";
-      const cells = row.map((ch) => {
+      const cells = row.map((ch, ci) => {
         const c = document.createElement("div");
         c.className = ch === "DEL" || ch === "OK" ? "re-cell re-ctrl" : "re-cell";
         c.textContent = ch;
         rowEl.appendChild(c);
+        this.cells.push({ el: c, r: ri, c: ci });
         return c;
       });
       grid.insertBefore(rowEl, cursor);
       return cells;
     });
+    // The cursor floats in SCREEN space (fixed) so it lands exactly where the hand points, over any key.
+    this.cursor.style.position = "fixed";
+    this.cursor.style.zIndex = "60";
   }
 
   reset(): void { this.buf = ""; this.hideCursor(); this.highlight(-1, -1); }
@@ -59,21 +68,28 @@ export class HandKeyboard {
     else if (this.buf.length < this.maxLen) this.buf += ch;
   }
 
-  // Feed one hand's landmarks each frame (null = no hand). Moves the palm cursor, highlights the
-  // pointed key, and presses it when the fist closes (open->closed edge).
+  // Feed one hand's landmarks each frame (null = no hand). Maps the palm cursor LINEARLY onto the
+  // field, positions it in screen space, highlights the key under it (by real rect), and presses on
+  // the fist-close edge.
   update(lm: Landmark[] | null, now: number): void {
     const cs = this.pointer.read(lm, now);
     if (!cs.present) { this.hideCursor(); this.highlight(-1, -1); return; }
-    const gx = cs.x, gy = cs.y; // already [0,1], margin-applied
-    const r = Math.min(ROWS.length - 1, Math.floor(gy * ROWS.length));
-    const c = Math.min(ROWS[r].length - 1, Math.floor(gx * ROWS[r].length));
+    const fr = this.field.getBoundingClientRect();
+    const px = fr.left + cs.x * fr.width;   // screen-space cursor point (client px)
+    const py = fr.top + cs.y * fr.height;
 
     this.cursor.style.opacity = "1";
-    this.cursor.style.left = `${gx * 100}%`;
-    this.cursor.style.top = `${gy * 100}%`;
+    this.cursor.style.left = `${px}px`;
+    this.cursor.style.top = `${py}px`;
     this.cursor.classList.toggle("closed", cs.closed);
-    this.highlight(r, c);
 
-    if (cs.clicked) this.pushChar(ROWS[r][c]); // close the fist over a key to press it
+    // hit-test the key under the cursor by its actual on-screen rectangle (no keyboard-space scaling)
+    let hit: Cell | null = null;
+    for (const cell of this.cells) {
+      const b = cell.el.getBoundingClientRect();
+      if (px >= b.left && px <= b.right && py >= b.top && py <= b.bottom) { hit = cell; break; }
+    }
+    this.highlight(hit ? hit.r : -1, hit ? hit.c : -1);
+    if (cs.clicked && hit) this.pushChar(ROWS[hit.r][hit.c]); // close the fist over a key to press it
   }
 }

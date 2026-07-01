@@ -7,7 +7,11 @@
 import type { Landmark } from "./hands.ts";
 import { isFist } from "./gesture.ts";
 
-export const DEFAULT_CURSOR_MARGIN = 0.12; // fraction inset per side; the inner (1-2m) maps to [0,1]
+// Fraction inset per side: the inner (1-2m) of the frame maps LINEARLY onto the full [0,1] screen, so
+// a bigger margin = more gain (less hand travel to reach an edge). Kept gentle (near-linear) because
+// consumers map this straight onto the whole screen — the on-screen keyboard/cards are a sub-region of
+// it, so they already need less than full reach. ~1.4× gain: the central 70% of the frame → full screen.
+export const DEFAULT_CURSOR_MARGIN = 0.15;
 
 const PALM = [0, 5, 9, 13, 17]; // wrist + index/middle/ring/pinky MCPs — a stable palm centre under a fist
 const remap = (v: number, m: number): number => Math.min(1, Math.max(0, (v - m) / Math.max(1e-3, 1 - 2 * m)));

@@ -174,7 +174,7 @@ function setupAudio(stage: Stage, match: Match): () => void {
 
     // Initials on a record break — the shared hand keyboard (palm cursor + fist) capped to 3, OR a physical
     // keyboard, both feeding one buffer. Gated on awaitingInitials so normal keys (M-mute) are unaffected.
-    const kb = new HandKeyboard($("initGrid"), $("initCursor"), { maxLen: 3, onSubmit: (t) => match.submitInitials(t) });
+    const kb = new HandKeyboard($("stage"), $("initGrid"), $("initCursor"), { maxLen: 3, onSubmit: (t) => match.submitInitials(t) });
     addEventListener("keydown", (e) => {
       if (!match.awaitingInitials) return;
       if (e.key === "Backspace") { kb.pushChar("DEL"); e.preventDefault(); return; }
