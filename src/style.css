@@ -162,6 +162,11 @@ body.game #camLabel { display: none; }
 .mute-btn:hover { color: var(--accent); border-color: var(--accent); }
 .mute-btn.off { color: var(--danger); }
 .mute-btn svg { width: 18px; height: 18px; }
+/* fullscreen toggle (game only) — Lucide maximize/minimize, no emoji — sits left of the mute button */
+.fs-btn { position: absolute; right: 56px; bottom: 10px; width: 34px; height: 34px; display: grid; place-items: center;
+  padding: 0; color: var(--dim); background: rgba(20,20,26,.55); border: 1px solid #2a2a32; border-radius: 8px; cursor: pointer; }
+.fs-btn:hover { color: var(--accent); border-color: var(--accent); }
+.fs-btn svg { width: 18px; height: 18px; }
 /* one-time "click for sound" hint, dismissed on unlock */
 #soundHint { position: absolute; right: 14px; bottom: 52px; color: var(--dim); font: 600 11px/1 var(--ui);
   letter-spacing: .06em; text-transform: uppercase; opacity: .7; pointer-events: none; }

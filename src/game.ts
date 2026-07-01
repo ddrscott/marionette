@@ -69,6 +69,24 @@ const ICON_ON =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>';
 const ICON_OFF =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/></svg>';
+const ICON_FS_MAX =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>';
+const ICON_FS_MIN =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>';
+
+// Fullscreen toggle button (Fullscreen API). Icon reflects state and stays in sync if the user
+// leaves fullscreen via Esc. Rejections (contexts that deny fullscreen) are swallowed.
+function setupFullscreen(): void {
+  const btn = document.getElementById("fsBtn") as HTMLButtonElement | null;
+  if (!btn) return;
+  const reflect = (): void => { btn.innerHTML = document.fullscreenElement ? ICON_FS_MIN : ICON_FS_MAX; };
+  reflect();
+  document.addEventListener("fullscreenchange", reflect);
+  btn.addEventListener("click", () => {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else document.documentElement.requestFullscreen().catch(() => {});
+  });
+}
 
 // Kick the correct music track for the current phase (called on unlock + on every phase change).
 function syncMusic(phase: GamePhase): void {
@@ -168,6 +186,7 @@ function setupAudio(stage: Stage, match: Match): () => void {
       }
     });
 
+    setupFullscreen();
     const audioTick = setupAudio(stage, match);
     stage.onFrame = (now) => {
       match.update(stage, now);
