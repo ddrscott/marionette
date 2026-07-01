@@ -15,25 +15,32 @@ export function isFist(lm: Landmark[]): boolean {
   return curled >= 3;
 }
 
-// PINCH detection — the finger-to-thumb "click". Uses MediaPipe's 3D WORLD landmarks (metric, meters),
-// NOT the 2D image projection: in 2D, rotating the hand collapses the thumb→finger gap and false-fires
-// a pinch even when nothing touches. In true 3D that gap stays real, so rotation no longer reads as a
-// pinch. Distance is normalized by 3D hand scale (wrist→middle-MCP) for size invariance. Open hand
-// keeps the ratio ≳ 0.7, a real pinch ≲ 0.3.
-// The pinch bar: a fingertip counts as pinched when its size-normalized 3D distance to the thumb is
-// below this. Exported so diagnostics (the /keyboard debug overlay) show the SAME number the detector
-// thresholds against — no drift between what's displayed and what fires a click.
-export const PINCH_THRESHOLD = 0.45;
+// PINCH detection — the finger-to-thumb "click". Uses ONLY the in-plane (x,y) gap of MediaPipe's world
+// landmarks — the z axis is deliberately DROPPED. MediaPipe INFERS depth from a single 2D camera, and
+// that guess is unreliable and biased by where the hand sits in the frame: measured live on /keyboard, a
+// held pinky pinch keeps a small, stable x/y gap at every hand position, while z balloons ~linearly
+// toward the frame edges (Δz/s ran 0.03 centred → 0.83 near the edge on a hand that was still touching),
+// wrecking a full 3D distance. x and y are near-direct image observations, so the in-plane gap is the
+// robust signal. Normalized by in-plane hand scale (wrist→middle-MCP) for size invariance: a real pinch
+// sits well under the threshold at any position (~0.04–0.13 in testing), a non-pinched finger far above
+// it (~0.35–0.85).
+// TRADEOFF: dropping z re-admits one edge case — a hand rotated so the pinch axis points along the
+// camera's depth (tips apart in z but aligned in x/y) can read as a pinch. Rare for a front-facing
+// keyboard; add a palm-orientation gate if it ever shows up.
+// PINCH_THRESHOLD / PINCH_TIPS are exported so the /keyboard debug overlay thresholds against the SAME
+// number the detector does — no drift between what's shown and what fires a click.
+export const PINCH_THRESHOLD = 0.25;
 export const PINCH_TIPS = [8, 12, 16, 20]; // index, middle, ring, pinky fingertips
-const dist3 = (a: Landmark, b: Landmark): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+const dist2 = (a: Landmark, b: Landmark): number => Math.hypot(a.x - b.x, a.y - b.y); // in-plane only — z is an unreliable inferred guess
 
-// The ONE place the pinch ratio is computed: each fingertip's 3D distance to the thumb, normalized by
-// hand scale (wrist→middle-MCP). pinchedFinger/isPinch consume this, and so does the debug overlay, so
-// the displayed ratios are exactly the ones detection thresholds — DRY, single source of truth.
+// The ONE place the pinch ratio is computed: each fingertip's in-plane (x,y) distance to the thumb,
+// normalized by in-plane hand scale (wrist→middle-MCP). pinchedFinger/isPinch consume this, and so does
+// the debug overlay, so the displayed ratios are exactly the ones detection thresholds — DRY, single
+// source of truth.
 export function fingerThumbRatios(world: Landmark[]): { tip: number; ratio: number }[] {
   const thumb = world[4];
-  const scale = dist3(world[9], world[0]) || 1e-3;
-  return PINCH_TIPS.map((tip) => ({ tip, ratio: dist3(world[tip], thumb) / scale }));
+  const scale = dist2(world[9], world[0]) || 1e-3;
+  return PINCH_TIPS.map((tip) => ({ tip, ratio: dist2(world[tip], thumb) / scale }));
 }
 
 // Which fingertip (8/12/16/20) is currently pinched to the thumb in 3D — the CLOSEST wins, so the

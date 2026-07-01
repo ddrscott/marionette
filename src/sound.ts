@@ -82,7 +82,12 @@ function noise(dur = 0.15, vol = 0.08, freq = 800, type: BiquadFilterType = "low
 // (a sustained limb overlap, a per-frame check) from machine-gunning the synth into a roar.
 const _last: Record<string, number> = Object.create(null);
 function throttled(key: string, windowMs: number, fn: () => void): boolean {
-  const now = ctx ? ctx.currentTime * 1000 : performance.now();
+  // Wall clock ONLY — never ctx.currentTime. ctx.currentTime starts at 0 at unlock, but a hand press can
+  // fire sfx.key() BEFORE unlock (the pinch works without audio), stamping _last with a large
+  // performance.now(). After unlock, ctx.currentTime*1000 is tiny, so `now - _last` goes negative and the
+  // throttle would swallow every click for seconds until ctx time caught up. performance.now() is one
+  // monotonic base across both states. (Audio SCHEDULING still uses ctx.currentTime in blip/noise/play.)
+  const now = performance.now();
   if (now - (_last[key] || 0) < windowMs) return false;
   _last[key] = now;
   fn();

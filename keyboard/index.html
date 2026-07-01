@@ -9,12 +9,16 @@
 <body class="kb">
   <div id="kbstage">
     <div class="kb-wrap">
-      <div class="kb-title">HAND KEYBOARD</div>
-      <div class="re-initials" id="kbDisplay">&nbsp;</div>
-      <!-- shared hand keyboard component mounts its QWERTY keys here (see src/handkeyboard.ts) -->
+      <div class="kb-title">AIR KEYBOARD FOR GERMAPHOBES</div>
+      <!-- the phrase to type, with typed-progress highlighting (see src/keyboard.ts renderPrompt) -->
+      <div class="kb-prompt" id="kbPrompt"></div>
+      <div class="kb-typed" id="kbDisplay">&nbsp;</div>
+      <div class="kb-timer" id="kbTimer">0.0s</div>
+      <!-- shared hand keyboard component mounts its keys here (see src/handkeyboard.ts) -->
       <div class="re-grid" id="kbGrid"><div class="init-cursor" id="kbCursor"></div></div>
-      <div class="re-hint">move your hand &middot; pinch index/middle to thumb to press &middot; pinky-pinch = delete &middot; or type</div>
+      <div class="re-hint" id="kbHint">raise your hand to start &middot; type the phrase &middot; pinch to press, pinky-pinch = delete</div>
       <div class="kb-result" id="kbResult"></div>
+      <button class="kb-next" id="kbNext" type="button" hidden>next phrase</button>
     </div>
 
     <div id="camBox">
@@ -23,6 +27,7 @@
     </div>
 
     <a class="home-link" href="/">&larr; home</a>
+    <button id="fsBtn" class="fs-btn" type="button" title="Fullscreen" aria-label="Toggle fullscreen"></button>
     <div id="boot">loading model&hellip;</div>
 
     <!-- DIAGNOSTIC-ONLY pinch/confidence overlay (see src/keyboard.ts updateDebug). Read-only: mirrors
