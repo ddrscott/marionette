@@ -1,6 +1,6 @@
 # Work Queue
 
-- [-] Smooth the UI cursor with the existing One-Euro filter (src/oneEuro.ts) — HandCursor returns the raw palm centroid (incl. jittery landmark 9) with no smoothing; apply OneEuro to x/y, reset on hand loss, don't add click latency — see [cursor-one-euro.md](cursor-one-euro.md)
+- [x] Smooth the UI cursor with the existing One-Euro filter (src/oneEuro.ts) — HandCursor returns the raw palm centroid (incl. jittery landmark 9) with no smoothing; apply OneEuro to x/y, reset on hand loss, don't add click latency — see [cursor-one-euro.md](cursor-one-euro.md)
 
 - [x] Add numbers, symbols & spacebar to the hand keyboard — mobile-style ?123/ABC layer toggle (letters ⇄ curated symbols), wide spacebar on both layers, physical-keyboard parity — see [keyboard-numbers-symbols.md](keyboard-numbers-symbols.md)
 

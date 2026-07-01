@@ -22,6 +22,16 @@ export class OneEuro {
 
   constructor(private minCutoff = 1.5, private beta = 0.01) {}
 
+  // Clear all internal state so the next filter() call re-primes from scratch (returns its input
+  // verbatim, no ease-in from a stale value). Used when a tracked source disappears and later
+  // reappears somewhere else — the cursor should snap to the new position, not glide across.
+  reset(): void {
+    this.xf = new LowPass();
+    this.dxf = new LowPass();
+    this.lastT = null;
+    this.lastX = 0;
+  }
+
   filter(x: number, tMs: number): number {
     if (this.lastT === null) {
       this.lastT = tMs;
