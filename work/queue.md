@@ -13,5 +13,5 @@
 - [x] Fix attach "seizure" — puppet spasms for seconds after strings attach before settling — see [attach-seizure.md](attach-seizure.md)
 - [x] Recolor to a duotone (teal + rust) theme — kill the rainbow; per-player team colors — see [color-theme.md](color-theme.md)
 - [x] Keep the hand-outline prompts up through ATTACHING (users move too soon when they vanish) — see [prompt-through-attach.md](prompt-through-attach.md)
-- [-] Letterbox /game to 16:10 (ref 1280×800) + full readability pass (canvas text in world units) — see [readability-16x10.md](readability-16x10.md)
+- [x] Letterbox /game to 16:10 (ref 1280×800) + full readability pass (canvas text in world units) — see [readability-16x10.md](readability-16x10.md)
 - [x] Off-thread hand detection — CLASSIC web worker, async/best-effort (profiled: detection = 24.6ms) — see [hands-web-worker.md](hands-web-worker.md)

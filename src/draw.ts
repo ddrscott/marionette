@@ -35,6 +35,13 @@ HAND_IMG.onload = () => {
 };
 HAND_IMG.src = "/hand-left.svg";
 
+// Canvas-text sizing in WORLD UNITS (multiplied by `scale` = px per world unit at draw time) so every
+// glyph/disc scales with the canvas instead of staying a fixed pixel size (the readability fix). Tuned
+// to read clearly at the 1280×800 reference (world height 12 → scale ≈ 67 px/unit).
+const DISC_R_UNITS = 0.14;      // finger control-point / fingertip disc radius (~9px @ ref)
+const DISC_FONT_UNITS = 0.24;   // the 1..5 number inside a disc (~16px @ ref)
+const PROMPT_FONT_UNITS = 0.40; // "raise a hand" / "hold still…" label (~27px @ ref)
+
 // Bodies rotate only about Z, so the world rotation is a single angle.
 const zAngle = (q: RAPIER_NS.Rotation): number => 2 * Math.atan2(q.z, q.w);
 
@@ -145,10 +152,10 @@ export class Renderer {
         stroke([controlPt, ...segPts.slice(0, s.cutJoint)]);
         stroke([...segPts.slice(s.cutJoint), end]);
       }
-      // attach dot on the puppet (the body end stays attached to the lower half)
+      // attach dot on the puppet (the body end stays attached to the lower half) — world-sized
       ctx.fillStyle = col;
       ctx.beginPath();
-      ctx.arc(this.sx(end.x), this.sy(end.y), 3, 0, Math.PI * 2);
+      ctx.arc(this.sx(end.x), this.sy(end.y), Math.max(2, 0.05 * this.scale), 0, Math.PI * 2);
       ctx.fill();
     });
 
@@ -167,7 +174,9 @@ export class Renderer {
     // (3) finger control points — coloured discs numbered 1..5 (the puppeteer's fingertips on stage).
     // Drawn per ATTACHED string (by finger slot), so during the attach ritual discs pop in one at a
     // time with their strings, and a detached/waiting puppet shows none.
-    ctx.font = "bold 11px ui-monospace, monospace";
+    // Disc + number are sized in WORLD units (× this.scale) so they read the same at any resolution.
+    const discR = DISC_R_UNITS * this.scale;
+    ctx.font = `bold ${DISC_FONT_UNITS * this.scale}px ui-monospace, monospace`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     rig.strings.forEach((s) => {
@@ -176,10 +185,10 @@ export class Renderer {
       const px = this.sx(t.x), py = this.sy(t.y);
       ctx.fillStyle = col;
       ctx.beginPath();
-      ctx.arc(px, py, 8, 0, Math.PI * 2);
+      ctx.arc(px, py, discR, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = "#0d0d0f";
-      ctx.fillText(String(s.slot + 1), px, py + 0.5);
+      ctx.fillText(String(s.slot + 1), px, py);
     });
     ctx.textAlign = "start";
     ctx.textBaseline = "alphabetic";
@@ -207,33 +216,37 @@ export class Renderer {
       ctx.restore();
     }
 
-    // progress bar + label under the hand
-    const by = cy + hh / 2 + 12;
-    const bw = Math.min(hw * 0.6, 160), bx = cx - bw / 2;
+    // progress bar + label under the hand — all sized in world units so they scale with the canvas.
+    const by = cy + hh / 2 + 0.18 * this.scale;
+    const barH = Math.max(4, 0.07 * this.scale);
+    const bw = Math.min(hw * 0.6, 2.6 * this.scale), bx = cx - bw / 2;
     ctx.globalAlpha = 1;
     ctx.fillStyle = "rgba(255,255,255,0.15)";
-    ctx.fillRect(bx, by, bw, 5);
-    if (progress > 0) { ctx.fillStyle = teamColor(worldX); ctx.fillRect(bx, by, bw * progress, 5); }
-    ctx.font = "12px ui-monospace, monospace";
+    ctx.fillRect(bx, by, bw, barH);
+    if (progress > 0) { ctx.fillStyle = teamColor(worldX); ctx.fillRect(bx, by, bw * progress, barH); }
+    ctx.font = `${PROMPT_FONT_UNITS * this.scale}px ui-monospace, monospace`;
     ctx.textAlign = "center";
+    ctx.textBaseline = "top";
     ctx.fillStyle = "rgba(232,232,232,0.85)";
-    ctx.fillText(progress > 0 ? "hold still…" : "raise a hand", cx, by + 20);
+    ctx.fillText(progress > 0 ? "hold still…" : "raise a hand", cx, by + barH + 0.16 * this.scale);
     ctx.textAlign = "start";
+    ctx.textBaseline = "alphabetic";
   }
 
   // The live fingertip control points during calibration — in the puppet's TEAM colour, numbered 1..5
   // by finger slot — so the user can line them up with the hand outline before the strings attach.
   drawFingerPoints(pts: Vec2[], color: string): void {
     const { ctx } = this;
-    ctx.font = "bold 11px ui-monospace, monospace";
+    const discR = DISC_R_UNITS * this.scale; // world-sized disc + number, matching drawPuppet's discs
+    ctx.font = `bold ${DISC_FONT_UNITS * this.scale}px ui-monospace, monospace`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     pts.forEach((p, i) => {
       const px = this.sx(p.x), py = this.sy(p.y);
       ctx.fillStyle = color;
-      ctx.beginPath(); ctx.arc(px, py, 8, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(px, py, discR, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = "#0d0d0f";
-      ctx.fillText(String(i + 1), px, py + 0.5);
+      ctx.fillText(String(i + 1), px, py);
     });
     ctx.textAlign = "start";
     ctx.textBaseline = "alphabetic";
