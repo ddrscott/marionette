@@ -1,0 +1,9 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "marionette",
+  "compatibility_date": "2026-06-01",
+  // Purely client-side app: no Worker script (`main`), just the Vite build served as static assets.
+  "assets": { "directory": "./dist" },
+  "routes": [{ "pattern": "marionette.ljs.app", "custom_domain": true }],
+  "observability": { "enabled": true }
+}
