@@ -12,12 +12,23 @@ const CUT_RADIUS = 0.6;       // world units: a limb tip within this of a string
 const CUT_SPEED = 2.5;        // min limb-tip speed (units/s) for a hit to count as a swipe
 const CUT_COOLDOWN_MS = 350;  // per attacker, between cuts (no rapid-fire multi-cut)
 const GROUND_MARGIN = 0.12;   // torso bottom within this of the floor = grounded
+const CLASH_DIST = 0.55;      // two limbs (tip/center) within this world distance = a collision
+const CLASH_SPEED = 2.0;      // combined limb speed for a clash to "ring" (resting adjacency stays quiet)
+const CLASH_COOLDOWN_MS = 200; // between clash rings so a sustained overlap doesn't machine-gun
+
+// Optional audio (or other) hooks the game subscribes to. Kept as plain callbacks so cut.ts stays
+// engine-only and never imports the audio layer.
+export interface CutEvents {
+  onSlice?: () => void; // a string was just severed
+  onClash?: () => void; // the two puppets' limbs just collided
+}
 
 export interface RulesState {
   lastCutAt: [number, number]; // per attacker slot
   dead: [boolean, boolean];    // per puppet: dropped / lost
+  lastClashAt: number;         // shared clash cooldown clock
 }
-export const makeRulesState = (): RulesState => ({ lastCutAt: [-1e9, -1e9], dead: [false, false] });
+export const makeRulesState = (): RulesState => ({ lastCutAt: [-1e9, -1e9], dead: [false, false], lastClashAt: -1e9 });
 
 // World-space tip of a limb capsule (the free end — the hand/foot — opposite the torso joint).
 function tipOf(part: Capsule): { x: number; y: number } {
@@ -40,8 +51,41 @@ function kill(stage: Stage, slot: 0 | 1, cs: RulesState): void {
   cs.dead[slot] = true;
 }
 
-// Advance the game rules one frame. Mutates the world (cutting strings) and `cs`.
-export function updateRules(stage: Stage, cs: RulesState, now: number): void {
+// The limbs (arms + legs) of a puppet — its weapons, and what can clash with the other puppet.
+const limbsOf = (p: Puppet): Capsule[] => p.parts.filter((c) => c.body !== p.torso);
+
+// Detect the two puppets' limbs colliding. The engine keeps each puppet in its own collision group
+// (they pass through each other), so there are no contact events to read — instead we sample each
+// limb's tip + center and ring when any cross-puppet pair is within CLASH_DIST while actually moving.
+// Throttled by a shared cooldown so a sustained overlap doesn't machine-gun.
+function detectClash(stage: Stage, cs: RulesState, now: number, ev?: CutEvents): void {
+  if (!ev?.onClash) return;
+  if (now - cs.lastClashAt < CLASH_COOLDOWN_MS) return;
+  if (stage.slotStates[0].phase !== "running" || stage.slotStates[1].phase !== "running") return;
+  const la = limbsOf(stage.puppets[0]);
+  const lb = limbsOf(stage.puppets[1]);
+  for (const a of la) {
+    const at = tipOf(a), ac = a.body.translation(), as = speedOf(a);
+    for (const b of lb) {
+      const bt = tipOf(b), bc = b.body.translation();
+      const near =
+        Math.hypot(at.x - bt.x, at.y - bt.y) < CLASH_DIST ||
+        Math.hypot(ac.x - bc.x, ac.y - bc.y) < CLASH_DIST ||
+        Math.hypot(at.x - bc.x, at.y - bc.y) < CLASH_DIST ||
+        Math.hypot(ac.x - bt.x, ac.y - bt.y) < CLASH_DIST;
+      if (near && as + speedOf(b) > CLASH_SPEED) {
+        cs.lastClashAt = now;
+        ev.onClash();
+        return;
+      }
+    }
+  }
+}
+
+// Advance the game rules one frame. Mutates the world (cutting strings) and `cs`. `ev` gets optional
+// slice/clash callbacks so the game can react (SFX) without cut.ts knowing about audio.
+export function updateRules(stage: Stage, cs: RulesState, now: number, ev?: CutEvents): void {
+  detectClash(stage, cs, now, ev);
   for (let a = 0 as 0 | 1; a <= 1; a = (a + 1) as 0 | 1) {
     const v = (1 - a) as 0 | 1;
     if (cs.dead[v]) continue;
@@ -71,6 +115,7 @@ export function updateRules(stage: Stage, cs: RulesState, now: number): void {
         if (hitSeg < 0) continue;
         const target = cutStringAtSeg(stage.world, vic, s.slot, hitSeg);
         cs.lastCutAt[a] = now;
+        ev?.onSlice?.();
         if (target === "torso" || intactCount(vic) === 0) kill(stage, v, cs); // head cut / last string = drop
         done = true;
         break;

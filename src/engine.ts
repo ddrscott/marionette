@@ -137,6 +137,10 @@ export class Stage {
   // state, mutate the world (e.g. cut strings), and draw overlays on top. ----
   onFrame?: (now: number, dt: number) => void;
 
+  // ---- page hook: fires each time a string snaps on during the attach ritual (slot, 0-based string
+  // index 0..4 in attach order). The game wires this to the rising attach SFX; unused by the harness.
+  onAttach?: (slot: 0 | 1, stringIndex: number) => void;
+
   private overlayCtx: CanvasRenderingContext2D;
   private lastSeq = -1;
   private frames = 0;
@@ -294,6 +298,7 @@ export class Stage {
           while (st.attached < due) {
             const sSlot = ATTACH_ORDER[st.attached];
             attachStringForSlot(RAPIER, this.world, p, sSlot, st.captured[sSlot], st.bind[sSlot]);
+            this.onAttach?.(slot, st.attached);
             st.attached++;
           }
         }

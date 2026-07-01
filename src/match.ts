@@ -12,7 +12,7 @@
 // Power for the HUD bars = a puppet's INTACT strings (cut strings drain it).
 import type { Stage } from "./engine.ts";
 import type { Puppet } from "./puppet.ts";
-import { updateRules, makeRulesState, type RulesState } from "./cut.ts";
+import { updateRules, makeRulesState, type RulesState, type CutEvents } from "./cut.ts";
 
 export type GamePhase = "prematch" | "roundStart" | "fight" | "roundEnd" | "matchEnd";
 
@@ -36,6 +36,10 @@ export class Match {
   sub = "";
   roundWinner: 0 | 1 | null = null;
   matchWinner: 0 | 1 | null = null;
+
+  // Optional slice/clash hooks the game wires to SFX; forwarded to the cut rules. Left unset in the
+  // harness (which never constructs a Match) — the audio layer is game-only.
+  cutEvents?: CutEvents;
 
   private rules: RulesState = makeRulesState();
   private phaseT = 0;  // performance.now() when the current phase began
@@ -76,7 +80,7 @@ export class Match {
         this.announce = now - this.fightT0 < FIGHT_FLASH_MS ? "FIGHT!" : "";
         this.sub = "";
         this.timeLeft = Math.max(0, ROUND_TIME - (now - this.fightT0) / 1000);
-        updateRules(stage, this.rules, now);
+        updateRules(stage, this.rules, now, this.cutEvents);
 
         const d0 = this.isDown(stage, 0), d1 = this.isDown(stage, 1);
         if (d0 || d1) {

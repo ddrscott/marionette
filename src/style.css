@@ -138,3 +138,13 @@ body.game #camLabel { display: none; }
 
 .home-link { position: absolute; left: 14px; bottom: 11px; color: var(--dim); text-decoration: none; font: 600 12px/1 var(--ui); letter-spacing: .08em; }
 .home-link:hover { color: var(--accent); }
+
+/* mute toggle (game only) — Lucide volume icon, no emoji */
+.mute-btn { position: absolute; right: 14px; bottom: 10px; width: 34px; height: 34px; display: grid; place-items: center;
+  padding: 0; color: var(--dim); background: rgba(20,20,26,.55); border: 1px solid #2a2a32; border-radius: 8px; cursor: pointer; }
+.mute-btn:hover { color: var(--accent); border-color: var(--accent); }
+.mute-btn.off { color: #ff6b6b; }
+.mute-btn svg { width: 18px; height: 18px; }
+/* one-time "click for sound" hint, dismissed on unlock */
+#soundHint { position: absolute; right: 14px; bottom: 52px; color: var(--dim); font: 600 11px/1 var(--ui);
+  letter-spacing: .06em; text-transform: uppercase; opacity: .7; pointer-events: none; }

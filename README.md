@@ -270,6 +270,8 @@ never waits on inference:
 | `src/draw.ts` | 2D-canvas renderer (`clear()` + per-puppet `drawPuppet()`, adaptive scale, finger-coloured strings + control points) + the attach-ritual `drawPrompt()` (the `#808080`-tinted hand outline above each puppet) and `drawFingerPoints()` (live calibration points) + both-hands landmark overlay (`drawHands`) + physics-debug overlay. |
 | `public/hand-left.svg` | The attach-ritual prompt art (a left hand). Re-tinted to `#808080` on an offscreen canvas at load and mirrored for the right side. |
 | `src/oneEuro.ts` | One Euro filter, ported verbatim from the validated dot test. |
+| `src/sound.ts` | **Game-only** procedural WebAudio SFX. One shared `AudioContext` + master `GainNode` bus; `blip`/`noise`/`throttled` primitives + a named `sfx` map (slice, clash, attach, ko, round, fight, time, win, beep). `unlock()` (gesture-gated) and `setMuted()` drive the whole graph. No assets, no deps. |
+| `src/music.ts` | **Game-only** adaptive chiptune on a lookahead scheduler (own `setInterval`, off the render loop). Two tracks share sound.ts's bus: a calm `MENU_SONG` and an adaptive `FIGHT_SONG` (`setIntensity(0..1)` tiers instruments in + climbs tempo). `startMenu()`/`startCombat()` crossfade so a switch never overlaps. |
 | `puppet-spike-1.html` | Original single-file spike, kept for reference. |
 
 **2.5D plane lock:** every dynamic body uses `enabledTranslations(true,true,false)` +
@@ -330,6 +332,29 @@ Control-path tunables in `src/main.ts`:
   string in the snap-on animation; `ATTACH_MARGIN` (`0.8`) — move more than this mid-attach and it
   aborts; `GRACE_MS` (`500`) — a hand absent this long detaches + resets; `ATTACH_ORDER`
   (`[2,0,4,1,3]`) — slot order strings attach in (head first, then hands, then feet).
+
+## Audio (game only)
+
+`/game` has procedural WebAudio — **no audio assets, no new deps** (`/harness` is silent and untouched).
+`src/sound.ts` synthesises every SFX from oscillators + noise bursts; `src/music.ts` is an adaptive
+chiptune on a lookahead scheduler. Both share **one `AudioContext` + master gain bus**, so the mute
+kills SFX *and* music at once.
+
+- **Unlock (browser autoplay policy):** WebAudio can't start without a user gesture, and this game is
+  hands-only (a webcam frame is *not* a gesture). So nothing plays until the first `click` / `keydown`
+  / `pointerdown`, which calls `unlock()` → `ctx.resume()`. A small "click or press any key for sound"
+  hint sits by the mute button until then; the music track for the current phase kicks in on unlock.
+- **Mute:** the `M` key or the corner speaker button (Lucide `volume-2`/`volume-x` icon, no emoji);
+  driven through the master gain and persisted in `localStorage` (`handbattle.audio.muted`).
+- **Wiring** — hooks/callbacks, kept off the render-critical path: `stage.onAttach(slot, i)` fires the
+  rising attach pluck; `match.cutEvents = { onSlice, onClash }` rings the **slice** (a string cut, in
+  `cut.ts`) and **clash** (the two puppets' limbs colliding — added `detectClash` proximity check in
+  `cut.ts`, since the puppets share no collision group and pass through each other). `game.ts` polls
+  `match` phase/announce/time deltas each frame for round/FIGHT!/K.O./TIME stingers, the win fanfare,
+  final-10s beeps, menu↔fight crossfade, and adaptive fight intensity (rises as strings drop / the
+  clock runs out). Every trigger is throttled so a burst can't machine-gun the synth.
+- **Verification:** audio is runtime-only — **not provable headlessly**. `tsc`/`build` pass; the actual
+  sound needs a real Chrome session (mic/gesture + speakers) to judge.
 
 ## Notes for the next pass
 
