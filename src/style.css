@@ -181,7 +181,16 @@ body.game #camLabel { display: none; }
 .re-title { font: 400 clamp(32px, 4cqmin, 66px)/1 var(--display); letter-spacing: .1em; color: var(--accent); text-shadow: 0 0 4px #000, 0 4px 0 #000, 0 0 30px rgba(79,176,170,.55); -webkit-text-stroke: 1.2px #0d0d0f; }
 .re-streak { font: 700 clamp(13px, 1.6cqmin, 22px)/1 var(--ui); letter-spacing: .2em; color: #fff; margin-top: 10px; }
 .re-initials { font: 400 clamp(42px, 5.5cqmin, 96px)/1 var(--display); letter-spacing: .24em; color: #fff; margin-top: 14px; text-shadow: 0 0 24px rgba(255,255,255,.3); }
-.re-hint { font: 600 13px/1 var(--ui); letter-spacing: .12em; color: var(--dim); margin-top: 14px; text-transform: uppercase; }
+.re-hint { font: 600 clamp(12px, 1.6cqmin, 20px)/1 var(--ui); letter-spacing: .12em; color: var(--dim); margin-top: 14px; text-transform: uppercase; }
+
+/* hand-driven A–Z picker (finger-gun: point + tuck thumb to select) */
+.re-grid { position: relative; display: grid; grid-template-columns: repeat(9, 1fr); gap: clamp(4px, .8cqmin, 9px);
+  width: min(64cqw, 720px); margin: 18px auto 0; }
+.re-cell { aspect-ratio: 1; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 6px;
+  background: rgba(20, 20, 26, .5); color: #d8d4cc; font: 700 clamp(13px, 2.6cqmin, 30px)/1 var(--display); }
+.re-cell.on { border-color: var(--accent); color: var(--accent); background: rgba(79, 176, 170, .14); box-shadow: 0 0 16px rgba(79, 176, 170, .55); }
+.init-cursor { position: absolute; width: clamp(12px, 1.8cqmin, 22px); aspect-ratio: 1; margin: 0; translate: -50% -50%;
+  border-radius: 50%; background: var(--accent); box-shadow: 0 0 14px var(--accent); pointer-events: none; opacity: 0; }
 
 /* ===== portrait-lock: on touch devices held in portrait, force landscape ===== */
 .rotate-gate { display: none; }
@@ -195,3 +204,10 @@ body.game #camLabel { display: none; }
   .rotate-gate .rg-sub { font: 600 clamp(13px, 3.4vw, 16px)/1.4 var(--ui); color: var(--dim); letter-spacing: .06em; }
 }
 @keyframes rotateHint { 0%, 55% { transform: rotate(0); } 80%, 100% { transform: rotate(-90deg); } }
+
+/* ===== /keyboard — isolated finger-gun initials test bench ===== */
+body.kb { height: 100vh; overflow: hidden; background: radial-gradient(ellipse at 50% 32%, #17171f 0%, #0a0a0d 72%); }
+body.kb #kbstage { position: fixed; inset: 0; container-type: size; display: grid; place-items: center; }
+.kb-wrap { text-align: center; width: min(90cqw, 820px); }
+.kb-title { font: 400 clamp(20px, 3.4cqmin, 40px)/1 var(--display); letter-spacing: .06em; color: var(--accent); text-shadow: 0 0 24px rgba(79,176,170,.4); margin-bottom: 10px; }
+.kb-result { font: 700 clamp(14px, 2cqmin, 24px)/1 var(--ui); letter-spacing: .18em; color: #fff; margin-top: 18px; min-height: 24px; }

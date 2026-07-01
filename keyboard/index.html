@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Initials — finger-gun test</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body class="kb">
+  <div id="kbstage">
+    <div class="kb-wrap">
+      <div class="kb-title">FINGER-GUN INITIALS</div>
+      <div class="re-initials" id="kbInitials">_ _ _</div>
+      <!-- A–Z + DEL grid; cells built in keyboard.ts. Point with the index finger, tuck the thumb to pick. -->
+      <div class="re-grid" id="initGrid"><div class="init-cursor" id="initCursor"></div></div>
+      <div class="re-hint">point &amp; tuck your thumb to pick &middot; or type</div>
+      <div class="kb-result" id="kbResult"></div>
+    </div>
+
+    <div id="camBox">
+      <video id="cam" autoplay playsinline muted></video>
+      <canvas id="camOverlay"></canvas>
+    </div>
+
+    <a class="home-link" href="/">&larr; home</a>
+    <div id="boot">loading model&hellip;</div>
+  </div>
+
+  <script type="module" src="/src/keyboard.ts"></script>
+</body>
+</html>

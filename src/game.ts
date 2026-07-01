@@ -6,6 +6,7 @@ import { Match, MAX_STRINGS, WINS_NEEDED, type GamePhase } from "./match.ts";
 import { isQualityTier, DEFAULT_QUALITY, type QualityTier } from "./hands.ts";
 import { unlock, audioReady, getMuted, setMuted, sfx } from "./sound.ts";
 import { music } from "./music.ts";
+import { HandInitials } from "./initials.ts";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -28,8 +29,7 @@ function renderPips(id: string, wins: number): void {
 }
 
 let lastAnnounce = "";
-let initialsBuf = ""; // arcade initials being typed on a record break
-function renderHud(m: Match): void {
+function renderHud(m: Match, initials: string): void {
   const timer = $("timer");
   timer.textContent = String(Math.ceil(m.timeLeft));
   timer.classList.toggle("low", m.phase === "fight" && m.timeLeft <= 10); // red pulse in the final seconds
@@ -56,10 +56,9 @@ function renderHud(m: Match): void {
   if (m.awaitingInitials) {
     entry.hidden = false;
     $("reStreak").textContent = `${m.streak}-WIN STREAK`;
-    $("reInitials").textContent = initialsBuf.padEnd(3, "_").split("").join(" ");
+    $("reInitials").textContent = initials.padEnd(3, "_").split("").join(" ");
   } else {
     entry.hidden = true;
-    if (initialsBuf) initialsBuf = "";
   }
 }
 
@@ -173,25 +172,32 @@ function setupAudio(stage: Stage, match: Match): () => void {
 
     const match = new Match();
 
-    // Arcade initials entry on a record break: type 3 letters (auto-uppercase; auto-saves on the 3rd,
-    // Enter saves early with padding, Backspace edits). Gated on match.awaitingInitials so normal keys
-    // (M-mute etc.) are unaffected the rest of the time.
+    // Initials on a record break — hand-driven (finger-gun: point + tuck thumb) OR keyboard, both
+    // feeding one shared buffer. Gated on match.awaitingInitials so normal keys (M-mute) are unaffected.
+    const picker = new HandInitials($("initGrid"), $("initCursor"), (initials) => match.submitInitials(initials));
     addEventListener("keydown", (e) => {
       if (!match.awaitingInitials) return;
-      if (e.key === "Backspace") { initialsBuf = initialsBuf.slice(0, -1); e.preventDefault(); return; }
-      if (e.key === "Enter") { match.submitInitials(initialsBuf); initialsBuf = ""; return; }
-      if (/^[a-z]$/i.test(e.key) && initialsBuf.length < 3) {
-        initialsBuf += e.key.toUpperCase();
-        if (initialsBuf.length === 3) { match.submitInitials(initialsBuf); initialsBuf = ""; }
-      }
+      if (e.key === "Backspace") { picker.pushChar("DEL"); e.preventDefault(); return; }
+      if (e.key === "Enter") { match.submitInitials(picker.buf); picker.reset(); return; }
+      if (/^[a-z]$/i.test(e.key)) picker.pushChar(e.key.toUpperCase());
     });
 
     setupFullscreen();
     const audioTick = setupAudio(stage, match);
+    let wasAwaiting = false;
     stage.onFrame = (now) => {
       match.update(stage, now);
-      renderHud(match);
+      renderHud(match, picker.buf);
       audioTick();
+      if (match.awaitingInitials) {
+        if (!wasAwaiting) picker.reset(); // fresh cursor / thumb-edge state on a new record break
+        // drive the finger-gun cursor from the winner's hand (fall back to any present hand)
+        const w = match.matchWinner;
+        const lm = (w !== null && stage.handStates[w].landmarks) ? stage.handStates[w].landmarks
+          : (stage.handStates[0].landmarks ?? stage.handStates[1].landmarks);
+        picker.update(lm, now);
+        wasAwaiting = true;
+      } else if (wasAwaiting) { picker.hideCursor(); wasAwaiting = false; }
     };
 
     $("boot").remove();
