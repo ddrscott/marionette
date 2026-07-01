@@ -1,5 +1,5 @@
 import type RAPIER_NS from "@dimforge/rapier3d-compat";
-import { WORLD_VIEW_HEIGHT, FLOOR_TOP, FINGERTIPS, type Puppet, type PuppetString, type Vec2 } from "./puppet.ts";
+import { WORLD_VIEW_HEIGHT, FLOOR_TOP, WALL_OPENING, WALL_HALF_W, FINGERTIPS, type Puppet, type PuppetString, type Vec2 } from "./puppet.ts";
 import { HAND_CONNECTIONS, type Landmark } from "./hands.ts";
 
 // Duotone team colours (must match style.css `--rust` / `--teal`). Colour is carried by the PLAYER,
@@ -98,6 +98,19 @@ export class Renderer {
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(0, floorPx); ctx.lineTo(this.canvas.width, floorPx);
+    ctx.stroke();
+
+    // center divider wall — from the top of the view down to the opening (a gap remains near the floor)
+    const wallW = Math.max(2, WALL_HALF_W * 2 * this.scale);
+    const wallX = this.sx(0);
+    const openTopPx = this.sy(FLOOR_TOP + WALL_OPENING);
+    ctx.fillStyle = "#15151b";
+    ctx.fillRect(wallX - wallW / 2, 0, wallW, openTopPx);
+    ctx.strokeStyle = "#2c2c34";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(wallX - wallW / 2, 0); ctx.lineTo(wallX - wallW / 2, openTopPx);
+    ctx.moveTo(wallX + wallW / 2, 0); ctx.lineTo(wallX + wallW / 2, openTopPx);
     ctx.stroke();
   }
 
