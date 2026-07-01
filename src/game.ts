@@ -149,7 +149,9 @@ function setupAudio(stage: Stage, match: Match): () => void {
       gravityY: DEFAULT_GRAVITY,
       camera: { deviceId: localStorage.getItem(LS_DEVICE), tier },
     });
-    stage.clampHalf = true; // neither player's fingertips may cross the center line
+    // Control points may cross the center line freely — the center WALL (blocking over-the-top) plus
+    // the bottom opening now govern the fight, so the fingertips aren't clamped to a half.
+    stage.clampHalf = false;
 
     const match = new Match();
 
