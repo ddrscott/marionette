@@ -346,7 +346,7 @@ kills SFX *and* music at once.
   **once** on `unlock()` and cached as an `AudioBuffer`; each press spins a fresh `AudioBufferSourceNode`
   through the master bus (so mute + level apply), fire-and-forget with a ~30ms throttle. It fires from
   `HandKeyboard.pushChar` — the single chokepoint for **every** accepted key (letters/digits/symbols/
-  space/DEL/OK) from **both** hand presses and physical typing — plus the `?123`/`ABC` layer toggle.
+  space/DEL/OK/CLEAR) from **both** hand presses and physical typing — plus the `?123`/`ABC` layer toggle.
   `/keyboard` (no mute button) unlocks the context on its first `pointerdown`/`keydown` and honors the
   saved mute; `/game` initials entry gets the click for free.
 
@@ -365,6 +365,32 @@ kills SFX *and* music at once.
   clock runs out). Every trigger is throttled so a burst can't machine-gun the synth.
 - **Verification:** audio is runtime-only — **not provable headlessly**. `tsc`/`build` pass; the actual
   sound needs a real Chrome session (mic/gesture + speakers) to judge.
+
+## `/keyboard` — "Air Keyboard for Germaphobes"
+
+The keyboard scene is a timed typing mini-game **and** the tuning bed for the shared hand keyboard
+(`src/handkeyboard.ts`) + hand cursor.
+
+- **Game loop (`src/keyboard.ts`):** a rotating on-theme phrase (letters + spaces only, so no layer
+  switching) is shown with typed-progress highlighting. The **timer starts the instant a hand is
+  detected** and stops when the buffer matches the prompt **exactly** (DEL to fix mistakes). On
+  finish it shows **WPM + time** and a persisted **best** (`localStorage handbattle.kb.bestMs`) with a
+  `NEW BEST` flag, and plays the win fanfare. Start the next phrase via the **next phrase** button,
+  the on-screen **OK**, or **Enter**.
+- **CLEAR key** (bottom row of both layers, beside SPACE + OK) wipes the whole entry in one press —
+  pressable by air-pinch, mouse click, or tap (it routes through the single `pushChar` path via the
+  `onClear` hook, so all three inputs share it), or the physical **Esc** key. On `/keyboard` it does a
+  clean **redo of the current phrase** (same prompt, timer reset to `0.0s` and re-armed the moment a
+  hand is present, Next/result cleared) — distinct from **next phrase**, which picks a new one. On
+  `/game` initials entry (no `onClear`) it just empties the buffer.
+- **Pinch detection is x/y-only** (see `gesture.ts`): MediaPipe's inferred `z` depth is unreliable and
+  biased by where the hand sits in frame, so the finger→thumb pinch uses the in-plane (x,y) distance
+  normalized by hand scale. The `debug` overlay (toggle top-left) mirrors the exact ratios/gate.
+- **Symbols layer** is aligned to a standard shift-row: `! @ # $ % ^ & * ( )` sit directly under
+  `1 2 3 4 5 6 7 8 9 0`. `SYMBOL_CHARS` (exported from `handkeyboard.ts`) keeps physical-keyboard
+  parity with the on-screen set.
+- **Fullscreen button** (top-right) uses the shared Lucide icons in `src/icons.ts` (same toggle as
+  `/game`). Mouse/tap and physical typing drive the same buffer as the hand.
 
 ## Notes for the next pass
 

@@ -173,11 +173,13 @@ body.game #camLabel { display: none; }
 .mute-btn:hover { color: var(--accent); border-color: var(--accent); }
 .mute-btn.off { color: var(--danger); }
 .mute-btn svg { width: 18px; height: 18px; }
-/* fullscreen toggle (game only) — Lucide maximize/minimize, no emoji — sits left of the mute button */
+/* fullscreen toggle — Lucide maximize/minimize, no emoji. On /game it sits left of the mute button. */
 .fs-btn { position: absolute; right: 56px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); width: 34px; height: 34px; display: grid; place-items: center;
-  padding: 0; color: var(--dim); background: rgba(20,20,26,.55); border: 1px solid #2a2a32; border-radius: 8px; cursor: pointer; }
+  padding: 0; color: var(--dim); background: rgba(20,20,26,.55); border: 1px solid #2a2a32; border-radius: 8px; cursor: pointer; z-index: 20; }
 .fs-btn:hover { color: var(--accent); border-color: var(--accent); }
 .fs-btn svg { width: 18px; height: 18px; }
+/* /keyboard has no mute button, so the fullscreen toggle goes top-right (the debug panel is top-left). */
+body.kb .fs-btn { right: 14px; top: calc(12px + env(safe-area-inset-top, 0px)); bottom: auto; }
 /* one-time "click for sound" hint, dismissed on unlock */
 #soundHint { position: absolute; right: 14px; bottom: 52px; color: var(--dim); font: 600 11px/1 var(--ui);
   letter-spacing: .06em; text-transform: uppercase; opacity: .7; pointer-events: none; }
@@ -206,8 +208,9 @@ body.game #camLabel { display: none; }
 /* brief pressed flash on a mouse click / touch tap — reads as a press, separate from the hand's .on */
 .re-cell.pressed { border-color: var(--accent); color: var(--accent); background: rgba(79, 176, 170, .28); box-shadow: 0 0 20px rgba(79, 176, 170, .7); }
 .re-cell.re-ctrl { color: var(--dim); font-size: clamp(10px, 1.7cqmin, 18px); letter-spacing: .05em; }
-/* wide spacebar (both layers): grows to fill the bottom row, sitting beside OK like a real keyboard */
-.re-cell.re-space { flex: 6; color: var(--dim); font-size: clamp(10px, 1.7cqmin, 18px); letter-spacing: .18em; text-transform: uppercase; }
+/* wide spacebar (both layers): grows to fill the bottom row, sitting beside CLEAR + OK like a real
+   keyboard. flex:5 keeps SPACE dominant (~71%) while leaving CLEAR/OK (flex:1 re-ctrl) readable. */
+.re-cell.re-space { flex: 5; color: var(--dim); font-size: clamp(10px, 1.7cqmin, 18px); letter-spacing: .18em; text-transform: uppercase; }
 .re-cell.on { border-color: var(--accent); color: var(--accent); background: rgba(79, 176, 170, .14); box-shadow: 0 0 16px rgba(79, 176, 170, .55); }
 .init-cursor { position: absolute; width: clamp(12px, 1.8cqmin, 22px); aspect-ratio: 1; margin: 0; translate: -50% -50%;
   border-radius: 50%; background: transparent; border: 2px solid var(--accent); box-shadow: 0 0 14px var(--accent);
@@ -250,6 +253,19 @@ body.chars #camBox { right: auto; left: 50%; bottom: 10px; transform: translateX
 .kb-wrap { text-align: center; width: min(90cqw, 820px); }
 .kb-title { font: 400 clamp(20px, 3.4cqmin, 40px)/1 var(--display); letter-spacing: .06em; color: var(--accent); text-shadow: 0 0 24px rgba(79,176,170,.4); margin-bottom: 10px; }
 .kb-result { font: 700 clamp(14px, 2cqmin, 24px)/1 var(--ui); letter-spacing: .18em; color: #fff; margin-top: 18px; min-height: 24px; }
+.kb-result .best { color: var(--accent); }
+
+/* ---- "Air Keyboard for Germaphobes" mini-game (src/keyboard.ts) ---- */
+.kb-prompt { font: 600 clamp(20px, 3.2cqmin, 40px)/1.35 var(--ui); letter-spacing: .08em; margin-top: 4px; white-space: pre-wrap; min-height: 1.35em; }
+.kb-prompt .p-done { color: var(--accent); }                                   /* correctly typed so far */
+.kb-prompt .p-cur { color: #fff; border-bottom: 2px solid var(--accent); }      /* the next expected char */
+.kb-prompt .p-cur.p-err { color: var(--danger); border-bottom-color: var(--danger); background: rgba(224,80,80,.18); } /* a wrong char is typed here */
+.kb-prompt .p-rest { color: var(--dim); }                                      /* not typed yet */
+.kb-typed { font: 400 clamp(15px, 1.9cqmin, 26px)/1 var(--ui); letter-spacing: .1em; color: rgba(255,255,255,.55); margin-top: 10px; min-height: 1em; white-space: pre-wrap; }
+.kb-timer { font: 700 clamp(26px, 4cqmin, 52px)/1 var(--display); letter-spacing: .04em; color: #fff; margin-top: 8px; }
+.kb-next { margin-top: 14px; font: 700 clamp(12px, 1.6cqmin, 18px)/1 var(--ui); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--accent); background: transparent; border: 1px solid var(--accent); border-radius: 6px; padding: 10px 20px; cursor: pointer; }
+.kb-next:hover { background: rgba(79,176,170,.14); box-shadow: 0 0 16px rgba(79,176,170,.35); }
 
 /* ---- /keyboard DIAGNOSTIC pinch/confidence overlay (src/keyboard.ts updateDebug) — read-only HUD.
    Self-contained: this rule + the #dbg block in keyboard/index.html + updateDebug are the whole feature. */

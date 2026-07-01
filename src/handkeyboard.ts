@@ -16,27 +16,29 @@ const LETTERS: string[][] = [
   ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"],
   ["A", "S", "D", "F", "G", "H", "J", "K", "L"],
   ["?123", "Z", "X", "C", "V", "B", "N", "M", "DEL"],
-  ["SPACE", "OK"],
+  ["SPACE", "CLEAR", "OK"],
 ];
 const SYMBOLS: string[][] = [
   ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
-  ["@", "#", "$", "_", "&", "-", "+", "(", ")", "/"],
-  ["ABC", "*", "\"", "'", ":", ";", "!", "?", "DEL"],
-  ["SPACE", "OK"],
+  ["!", "@", "#", "$", "%", "^", "&", "*", "(", ")"], // each sits directly under its number (shift-row order)
+  ["ABC", "-", "_", "+", "/", ":", ";", "'", "?", "DEL"],
+  ["SPACE", "CLEAR", "OK"],
 ];
 const LAYOUTS = [LETTERS, SYMBOLS];
 
-// The curated symbol characters on the numbers/symbols layer — exported so the physical-keyboard
-// handlers (keyboard.ts, game.ts) route the SAME set into pushChar (parity, one buffer, DRY).
-export const SYMBOL_CHARS = "@#$_&-+()/*\"':;!?";
+// Every symbol character on the numbers/symbols layer — exported so the physical-keyboard handlers
+// (keyboard.ts, game.ts) route the SAME set into pushChar (parity, one buffer, DRY).
+export const SYMBOL_CHARS = "!@#$%^&*()-_+/:;'?";
 
-// Non-character keys never get appended verbatim: toggles switch the layer, SPACE inserts a space.
+// Non-character keys never get appended verbatim: toggles switch the layer, SPACE inserts a space,
+// CLEAR empties the whole buffer (and fires onClear).
 const isToggle = (k: string): boolean => k === "?123" || k === "ABC";
-const isCtrl = (k: string): boolean => k === "DEL" || k === "OK" || isToggle(k);
+const isCtrl = (k: string): boolean => k === "DEL" || k === "OK" || k === "CLEAR" || isToggle(k);
 
 export interface HandKeyboardOpts {
   maxLen?: number;                    // cap the buffer length (default: unbounded)
   onSubmit?: (text: string) => void;  // fired on OK; the buffer is then cleared
+  onClear?: () => void;               // fired on CLEAR, AFTER the buffer is emptied (e.g. restart the round)
   click?: ClickGesture;               // "fist" (default) or "pinch" (finger-to-thumb) to press a key
 }
 
@@ -48,6 +50,7 @@ export class HandKeyboard {
   private cells: Cell[] = [];
   private maxLen: number;
   private onSubmit?: (text: string) => void;
+  private onClear?: () => void;
   private pointer: HandCursor; // palm-centre cursor + fist/pinch-to-press (shared with every scene)
   private clickMode: ClickGesture;
   private prevDel = false;     // pinky-pinch (=DELETE) edge state, debounced separately from the press
@@ -59,6 +62,7 @@ export class HandKeyboard {
   constructor(private field: HTMLElement, private grid: HTMLElement, private cursor: HTMLElement, opts: HandKeyboardOpts = {}) {
     this.maxLen = opts.maxLen ?? Infinity;
     this.onSubmit = opts.onSubmit;
+    this.onClear = opts.onClear;
     this.clickMode = opts.click ?? "fist";
     this.pointer = new HandCursor({ click: opts.click });
     this.rows = [];
@@ -144,6 +148,7 @@ export class HandKeyboard {
     sfx.key(); // audible feedback on EVERY accepted key — both hand presses and physical typing
     if (ch === "DEL") this.buf = this.buf.slice(0, -1);
     else if (ch === "OK") { this.onSubmit?.(this.buf); this.buf = ""; }
+    else if (ch === "CLEAR") { this.buf = ""; this.onClear?.(); } // wipe the whole entry in one press
     else if (this.buf.length < this.maxLen) this.buf += ch;
   }
 
