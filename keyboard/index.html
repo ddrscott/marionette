@@ -8,17 +8,22 @@
 </head>
 <body class="kb">
   <div id="kbstage">
-    <!-- Title pinned to the TOP + a how-to-play panel on the right. Both are positioned independently of
-         the bottom-anchored keyboard stack (see body.kb .kb-title / .kb-directions). -->
+    <!-- Title pinned to the TOP (positioned independently of the bottom-anchored keyboard stack). -->
     <div class="kb-title">AIR KEYBOARD FOR GERMAPHOBES</div>
-    <aside class="kb-directions" id="kbDirections">
-      <div class="kb-dir-title">how to play</div>
-      <ul>
-        <li>Raise your hand to the camera.</li>
-        <li>Pinch your finger to your thumb to press the highlighted key.</li>
-        <li>Move your hand out of frame to pause.</li>
-      </ul>
-    </aside>
+
+    <!-- How-to-play OVERLAY: blocks the game until dismissed by click, tap, or hand-PINCH on the button
+         (it's a registered press target). Dismissing starts the countdown — the hand is already in view. -->
+    <div class="kb-howto" id="kbHowto">
+      <div class="kb-howto-card">
+        <div class="kb-dir-title">how to play</div>
+        <ul>
+          <li>Raise your hand to the camera.</li>
+          <li>Pinch your finger to your thumb to press the highlighted key.</li>
+          <li>Move your hand out of frame to pause.</li>
+        </ul>
+        <button class="kb-btn kb-gotit" id="kbGotIt" type="button">pinch me if you got it</button>
+      </div>
+    </div>
 
     <!-- The KEYBOARD is always the LOWEST element; every other bit of UI stacks ABOVE it (the wrap is
          bottom-anchored, so DOM order top→bottom = screen top→bottom, keys last). -->

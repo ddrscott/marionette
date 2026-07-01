@@ -68,6 +68,7 @@ const cleanInitials = (raw: string): string => raw.toUpperCase().replace(/[^A-Z]
     let countdownStart = 0;
     let pausedElapsed = 0;     // ms elapsed at pause, so resume continues instead of restarting
     let lastSeenMs = -1e9;     // last frame a hand was present (grace debounce for enter/exit)
+    let howtoOpen = true;      // the how-to overlay gates the countdown until dismissed (once per load)
     let wrongUntil = 0;        // wall-clock until which the expected char shows red (a rejected keypress)
     let lastTick = 0;          // last countdown number spoken, so each of 3·2·1 beeps exactly once
     let lastMs = 0;            // the finished run's time, carried into initials + the leaderboard POST
@@ -193,7 +194,9 @@ const cleanInitials = (raw: string): string => raw.toUpperCase().replace(/[^A-Z]
       const present = now - lastSeenMs < GRACE_MS;
       switch (phase) {
         case "waiting":
-          if (present) { phase = "countdown"; countdownStart = now; lastTick = 0; kbHint.textContent = "get ready — pinch each letter to type"; }
+          // The how-to overlay gates the start; dismissing it (a pinch — so the hand is already in
+          // view) drops the gate and the countdown kicks off right here on the next frame.
+          if (present && !howtoOpen) { phase = "countdown"; countdownStart = now; lastTick = 0; kbHint.textContent = "get ready — pinch each letter to type"; }
           break;
         case "countdown": {
           if (!present) { toWaiting(); break; }               // hand left before GO — cancel the countdown
@@ -237,7 +240,12 @@ const cleanInitials = (raw: string): string => raw.toUpperCase().replace(/[^A-Z]
     kbReset.addEventListener("click", resetRound);
     kbNew.addEventListener("click", newRound);
     kbSubmit.addEventListener("click", () => void submit());
-    for (const b of [kbResume, kbReset, kbNew, kbSubmit]) kb.addPressTarget(b); // hand-pinchable too
+    // How-to overlay: dismiss by click, tap, or hand-PINCH on the button (a registered press target —
+    // pressable even while the keys are locked). Once gone, the waiting case starts the countdown.
+    const kbHowto = $("kbHowto");
+    const kbGotIt = $<HTMLButtonElement>("kbGotIt");
+    kbGotIt.addEventListener("click", () => { kbHowto.hidden = true; howtoOpen = false; });
+    for (const b of [kbResume, kbReset, kbNew, kbSubmit, kbGotIt]) kb.addPressTarget(b); // hand-pinchable too
     newRound();
 
     // WebAudio autoplay policy: a webcam pinch is NOT a gesture, so the click can't play until a real

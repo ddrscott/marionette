@@ -208,10 +208,11 @@ export class HandKeyboard {
       const b = cell.el.getBoundingClientRect();
       if (px >= b.left && px <= b.right && py >= b.top && py <= b.bottom) { hit = cell; break; }
     }
-    // Also let the cursor reach registered EXTERNAL buttons (e.g. the game's "next phrase") so the whole
-    // flow is hands-free — checked only when no key is under the cursor. Hidden buttons have a zero rect.
+    // Also let the cursor reach registered EXTERNAL buttons (e.g. "next phrase", the how-to dismiss) so
+    // the whole flow is hands-free — when no key is under the cursor, OR while the keys are LOCKED (keys
+    // are inert then, and an overlay's button may sit on top of them). Hidden buttons have a zero rect.
     let hitBtn: HTMLElement | null = null;
-    if (!hit) {
+    if (!hit || this.locked) {
       for (const el of this.pressTargets) {
         const b = el.getBoundingClientRect();
         if (b.width > 0 && px >= b.left && px <= b.right && py >= b.top && py <= b.bottom) { hitBtn = el; break; }

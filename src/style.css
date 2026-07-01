@@ -270,22 +270,24 @@ body.kb .re-grid { width: 100%; }
   text-shadow: 0 0 24px rgba(79,176,170,.4); }
 body.kb .kb-title { position: absolute; top: calc(clamp(14px, 5dvh, 56px) + env(safe-area-inset-top, 0px));
   left: 50%; transform: translateX(-50%); width: max-content; max-width: 92vw; z-index: 15; text-align: center; }
-/* How-to-play panel in the empty UPPER-RIGHT (content is bottom-anchored, so this zone is clear).
-   Hidden on narrow screens where it'd crowd the centred content. */
-.kb-directions { position: absolute; right: clamp(12px, 3vw, 44px); top: clamp(72px, 15dvh, 200px);
-  width: min(250px, 26vw); text-align: left; z-index: 15;
-  background: rgba(10,10,13,.5); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
-.kb-directions .kb-dir-title { font: 700 clamp(11px, 1.4cqmin, 14px)/1 var(--ui); letter-spacing: .18em; text-transform: uppercase; color: var(--accent); margin-bottom: 12px; }
-.kb-directions ul { margin: 0; padding-left: 1.05em; display: flex; flex-direction: column; gap: 9px; }
-.kb-directions li { font: 500 clamp(11px, 1.4cqmin, 15px)/1.45 var(--ui); color: var(--dim); }
+/* How-to-play OVERLAY: blocks play until dismissed (click / tap / hand-pinch on the button). The hand
+   cursor (z 60) floats above it, so you can see yourself aim the pinch. */
+.kb-howto { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center;
+  background: rgba(8, 8, 10, .72); backdrop-filter: blur(3px); }
+.kb-howto[hidden] { display: none; }
+.kb-howto-card { width: min(440px, 92vw); text-align: left;
+  background: rgba(10, 10, 13, .95); border: 1px solid var(--accent); border-radius: 12px;
+  padding: 22px 26px; box-shadow: 0 14px 50px rgba(0, 0, 0, .6); }
+.kb-howto-card .kb-dir-title { font: 700 clamp(12px, 1.6cqmin, 15px)/1 var(--ui); letter-spacing: .18em; text-transform: uppercase; color: var(--accent); margin-bottom: 12px; }
+.kb-howto-card ul { margin: 0 0 18px; padding-left: 1.05em; display: flex; flex-direction: column; gap: 9px; }
+.kb-howto-card li { font: 500 clamp(13px, 1.7cqmin, 16px)/1.45 var(--ui); color: var(--fg); }
+.kb-gotit { display: block; width: 100%; padding: 14px 20px; } /* big pinch target */
+body.kb #camBox { z-index: 55; } /* self-view stays visible above the how-to backdrop (cursor is z 60) */
 /* Mobile portrait: camera docks CENTRED below the title (a saved drag position still overrides this
-   default), the directions become a centred card under it, and the hint gets brighter. Landscape
-   phones keep the desktop side-panel layout (it fits there). */
+   default) and the hint gets brighter. */
 @media (max-width: 820px) and (orientation: portrait) {
   body.kb #camBox { right: auto; bottom: auto; left: 50%; transform: translateX(-50%);
     top: calc(clamp(64px, 12dvh, 100px) + env(safe-area-inset-top, 0px)); width: 176px; height: 132px; }
-  .kb-directions { right: auto; left: 50%; transform: translateX(-50%); width: min(92vw, 380px);
-    top: calc(clamp(64px, 12dvh, 100px) + env(safe-area-inset-top, 0px) + 132px + 12px); }
   body.kb .re-hint { color: rgba(216, 212, 204, .9); }
 }
 .kb-result { font: 700 clamp(14px, 2cqmin, 24px)/1 var(--ui); letter-spacing: .18em; color: #fff; min-height: 24px; }
