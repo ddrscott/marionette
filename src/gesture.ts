@@ -20,18 +20,28 @@ export function isFist(lm: Landmark[]): boolean {
 // a pinch even when nothing touches. In true 3D that gap stays real, so rotation no longer reads as a
 // pinch. Distance is normalized by 3D hand scale (wrist→middle-MCP) for size invariance. Open hand
 // keeps the ratio ≳ 0.7, a real pinch ≲ 0.3.
-const PINCH_THRESHOLD = 0.45;
-const PINCH_TIPS = [8, 12, 16, 20]; // index, middle, ring, pinky fingertips
+// The pinch bar: a fingertip counts as pinched when its size-normalized 3D distance to the thumb is
+// below this. Exported so diagnostics (the /keyboard debug overlay) show the SAME number the detector
+// thresholds against — no drift between what's displayed and what fires a click.
+export const PINCH_THRESHOLD = 0.45;
+export const PINCH_TIPS = [8, 12, 16, 20]; // index, middle, ring, pinky fingertips
 const dist3 = (a: Landmark, b: Landmark): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+
+// The ONE place the pinch ratio is computed: each fingertip's 3D distance to the thumb, normalized by
+// hand scale (wrist→middle-MCP). pinchedFinger/isPinch consume this, and so does the debug overlay, so
+// the displayed ratios are exactly the ones detection thresholds — DRY, single source of truth.
+export function fingerThumbRatios(world: Landmark[]): { tip: number; ratio: number }[] {
+  const thumb = world[4];
+  const scale = dist3(world[9], world[0]) || 1e-3;
+  return PINCH_TIPS.map((tip) => ({ tip, ratio: dist3(world[tip], thumb) / scale }));
+}
 
 // Which fingertip (8/12/16/20) is currently pinched to the thumb in 3D — the CLOSEST wins, so the
 // gestures stay mutually exclusive — or -1 if none. Lets callers map different fingers to different
 // actions (index/middle = press, pinky = delete).
 export function pinchedFinger(world: Landmark[]): number {
-  const thumb = world[4];
-  const scale = dist3(world[9], world[0]) || 1e-3;
   let best = -1, bestD = PINCH_THRESHOLD;
-  for (const t of PINCH_TIPS) { const d = dist3(world[t], thumb) / scale; if (d < bestD) { bestD = d; best = t; } }
+  for (const { tip, ratio } of fingerThumbRatios(world)) if (ratio < bestD) { bestD = ratio; best = tip; }
   return best;
 }
 

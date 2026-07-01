@@ -24,6 +24,14 @@
 
     <a class="home-link" href="/">&larr; home</a>
     <div id="boot">loading model&hellip;</div>
+
+    <!-- DIAGNOSTIC-ONLY pinch/confidence overlay (see src/keyboard.ts updateDebug). Read-only: mirrors
+         the exact ratios + gate the detector uses. Remove this block + the #dbg CSS + updateDebug to
+         delete the overlay entirely; nothing else depends on it. -->
+    <div id="dbg">
+      <label class="dbg-head"><input type="checkbox" id="dbgToggle" checked /> debug</label>
+      <pre id="dbgBody"></pre>
+    </div>
   </div>
 
   <script type="module" src="/src/keyboard.ts"></script>

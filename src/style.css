@@ -250,3 +250,23 @@ body.chars #camBox { right: auto; left: 50%; bottom: 10px; transform: translateX
 .kb-wrap { text-align: center; width: min(90cqw, 820px); }
 .kb-title { font: 400 clamp(20px, 3.4cqmin, 40px)/1 var(--display); letter-spacing: .06em; color: var(--accent); text-shadow: 0 0 24px rgba(79,176,170,.4); margin-bottom: 10px; }
 .kb-result { font: 700 clamp(14px, 2cqmin, 24px)/1 var(--ui); letter-spacing: .18em; color: #fff; margin-top: 18px; min-height: 24px; }
+
+/* ---- /keyboard DIAGNOSTIC pinch/confidence overlay (src/keyboard.ts updateDebug) — read-only HUD.
+   Self-contained: this rule + the #dbg block in keyboard/index.html + updateDebug are the whole feature. */
+#dbg {
+  position: fixed; left: 12px; top: 12px; z-index: 20;
+  min-width: 220px; padding: 8px 10px;
+  background: rgba(10, 10, 13, .82); border: 1px solid var(--line); border-radius: 4px;
+  backdrop-filter: blur(2px);
+}
+#dbg .dbg-head { display: flex; align-items: center; gap: 6px; margin: 0 0 6px;
+  font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); cursor: pointer; }
+#dbg .dbg-head input { accent-color: var(--accent); cursor: pointer; }
+#dbg pre { margin: 0; font: 500 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--fg); white-space: pre; }
+#dbg.off pre { display: none; }
+/* inline state tokens emitted by updateDebug */
+#dbg .ok { color: var(--teal); }
+#dbg .bad { color: var(--danger); }
+#dbg .hot { color: var(--rust); font-weight: 700; }
+#dbg .mut { color: var(--dim); }

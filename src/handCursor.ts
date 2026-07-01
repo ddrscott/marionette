@@ -32,6 +32,21 @@ export const CLICK_MIN_CONFIDENCE = 0.8;
 const PALM = [0, 5, 9, 13, 17]; // wrist + index/middle/ring/pinky MCPs — a stable palm centre under a fist
 const remap = (v: number, m: number): number => Math.min(1, Math.max(0, (v - m) / Math.max(1e-3, 1 - 2 * m)));
 
+// The pointer's raw source: the palm centroid in normalized IMAGE coords [0,1] (un-mirrored, no margin).
+// Exported so diagnostics can read the hand's true frame position — e.g. how close it is to an edge.
+export function palmCentroid(lm: Landmark[]): { x: number; y: number } {
+  let sx = 0, sy = 0;
+  for (const i of PALM) { sx += lm[i].x; sy += lm[i].y; }
+  return { x: sx / PALM.length, y: sy / PALM.length };
+}
+
+// The full cursor mapping (selfie-mirror x + margin remap), pre-smoothing. HandCursor.read consumes
+// this and so can a diagnostic overlay, so both produce the SAME on-screen position — one code path.
+export function mapCursor(lm: Landmark[], margin: number): { x: number; y: number } {
+  const c = palmCentroid(lm);
+  return { x: remap(1 - c.x, margin), y: remap(c.y, margin) };
+}
+
 export interface CursorState {
   present: boolean;
   x: number; y: number; // normalized [0,1], selfie-mirrored (+x = screen-right, +y = down), margin-applied
@@ -73,12 +88,10 @@ export class HandCursor {
     // gliding from the last seen position.
     if (!hand) { this.prevClosed = false; this.fx.reset(); this.fy.reset(); return { present: false, x: 0.5, y: 0.5, closed: false, clicked: false, heldMs: 0 }; }
     const lm = hand.landmarks;
-    let sx = 0, sy = 0;
-    for (const i of PALM) { sx += lm[i].x; sy += lm[i].y; }
-    sx /= PALM.length; sy /= PALM.length;
-    // Map first, then One-Euro the two final scalars (never the individual landmarks).
-    const x = this.fx.filter(remap(1 - sx, this.margin), now); // mirror x to match the selfie preview
-    const y = this.fy.filter(remap(sy, this.margin), now);
+    // Map first (shared mirror + margin remap), then One-Euro the two final scalars (never the landmarks).
+    const m = mapCursor(lm, this.margin);
+    const x = this.fx.filter(m.x, now);
+    const y = this.fy.filter(m.y, now);
     // confidence gate + gesture: pinch uses the 3D world skeleton (rotation-invariant); fist the 2D image.
     const confident = hand.score === undefined || hand.score >= this.minConfidence;
     const closed = confident && (this.click === "pinch" ? isPinch(hand.world ?? lm) : isFist(lm));
