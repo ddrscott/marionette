@@ -89,11 +89,15 @@ select {
    with the page background showing as letter-/pillar-box bars around it. Everything lives INSIDE
    #stage, so the HUD/cam/mute/record-entry all align to the box automatically. `container-type: size`
    makes #stage a query container so the HUD's clamp()s track the BOX (cqmin) rather than the viewport. */
-body.game { height: 100vh; overflow: hidden; display: grid; place-items: center; background: var(--bg); }
+body.game { overflow: hidden; display: grid; place-items: center; background: var(--bg); height: 100vh; height: 100dvh; }
 body.game #stage {
   position: relative;
+  /* dvh = the CURRENTLY-VISIBLE viewport (excludes the mobile browser UI), so the bottom bar (mute +
+     fullscreen) is never pushed under the address bar. vh lines are the fallback for old browsers. */
   width:  min(100vw, calc(100vh * 16 / 10));
   height: min(100vh, calc(100vw * 10 / 16));
+  width:  min(100vw, calc(100dvh * 16 / 10));
+  height: min(100dvh, calc(100vw * 10 / 16));
   container-type: size;
   background: radial-gradient(ellipse at 50% 32%, #17171f 0%, #0a0a0d 72%);
   /* a subtle frame so the 16:10 play area reads as intentional against the letterbox bars */
@@ -153,17 +157,18 @@ body.game #stage {
 body.game #camBox { right: auto; left: 50%; bottom: 10px; transform: translateX(-50%); width: 150px; height: 112px; opacity: .5; border-color: #2a2a32; }
 body.game #camLabel { display: none; }
 
-.home-link { position: absolute; left: 14px; bottom: 11px; color: var(--dim); text-decoration: none; font: 600 12px/1 var(--ui); letter-spacing: .08em; }
+/* corner buttons lifted above the mobile home indicator (safe-area) */
+.home-link { position: absolute; left: 14px; bottom: calc(11px + env(safe-area-inset-bottom, 0px)); color: var(--dim); text-decoration: none; font: 600 12px/1 var(--ui); letter-spacing: .08em; }
 .home-link:hover { color: var(--accent); }
 
 /* mute toggle (game only) — Lucide volume icon, no emoji */
-.mute-btn { position: absolute; right: 14px; bottom: 10px; width: 34px; height: 34px; display: grid; place-items: center;
+.mute-btn { position: absolute; right: 14px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); width: 34px; height: 34px; display: grid; place-items: center;
   padding: 0; color: var(--dim); background: rgba(20,20,26,.55); border: 1px solid #2a2a32; border-radius: 8px; cursor: pointer; }
 .mute-btn:hover { color: var(--accent); border-color: var(--accent); }
 .mute-btn.off { color: var(--danger); }
 .mute-btn svg { width: 18px; height: 18px; }
 /* fullscreen toggle (game only) — Lucide maximize/minimize, no emoji — sits left of the mute button */
-.fs-btn { position: absolute; right: 56px; bottom: 10px; width: 34px; height: 34px; display: grid; place-items: center;
+.fs-btn { position: absolute; right: 56px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); width: 34px; height: 34px; display: grid; place-items: center;
   padding: 0; color: var(--dim); background: rgba(20,20,26,.55); border: 1px solid #2a2a32; border-radius: 8px; cursor: pointer; }
 .fs-btn:hover { color: var(--accent); border-color: var(--accent); }
 .fs-btn svg { width: 18px; height: 18px; }
@@ -209,8 +214,8 @@ body.game #camLabel { display: none; }
 @keyframes rotateHint { 0%, 55% { transform: rotate(0); } 80%, 100% { transform: rotate(-90deg); } }
 
 /* ===== /keyboard — isolated finger-gun initials test bench ===== */
-body.kb { height: 100vh; overflow: hidden; background: radial-gradient(ellipse at 50% 32%, #17171f 0%, #0a0a0d 72%); }
-body.kb #kbstage { position: fixed; inset: 0; container-type: size; display: grid; place-items: center; }
+body.kb { overflow: hidden; background: radial-gradient(ellipse at 50% 32%, #17171f 0%, #0a0a0d 72%); height: 100vh; height: 100dvh; }
+body.kb #kbstage { position: fixed; left: 0; right: 0; top: 0; height: 100vh; height: 100dvh; container-type: size; display: grid; place-items: center; }
 .kb-wrap { text-align: center; width: min(90cqw, 820px); }
 .kb-title { font: 400 clamp(20px, 3.4cqmin, 40px)/1 var(--display); letter-spacing: .06em; color: var(--accent); text-shadow: 0 0 24px rgba(79,176,170,.4); margin-bottom: 10px; }
 .kb-result { font: 700 clamp(14px, 2cqmin, 24px)/1 var(--ui); letter-spacing: .18em; color: #fff; margin-top: 18px; min-height: 24px; }
