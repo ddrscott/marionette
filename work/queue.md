@@ -1,5 +1,7 @@
 # Work Queue
 
+- [-] Add a CLEAR key to the hand keyboard — on-screen key (both layers, hand/mouse/tap) that empties the current entry via the shared pushChar + an onClear hook; on /keyboard it restarts the current phrase (clear text + reset timer, same prompt) — see [keyboard-clear-key.md](keyboard-clear-key.md)
+
 - [x] Debug overlay on /keyboard — live finger→thumb distance ratios (vs 0.45 threshold) + confidence score (vs 0.9 gate) + hand edge-position, to diagnose left-edge gesture dropoff; reuse gesture.ts math (DRY), diagnostic-only — see [keyboard-debug-overlay.md](keyboard-debug-overlay.md)
 
 - [x] Make the camera preview draggable (mouse + touch) on /game, /characters, /keyboard — free placement, clamped on-screen (safe-area aware), persisted via localStorage; shared helper, not per-scene — see [draggable-camera.md](draggable-camera.md)
