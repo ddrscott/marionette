@@ -24,8 +24,9 @@ import type { Landmark, WorkerInbound, WorkerOutbound, WorkerHand } from "./hand
 // Minimal structural types for the two MediaPipe classes we use (so we import NO @mediapipe types).
 interface HandResult {
   landmarks: Landmark[][];
-  handedness?: { categoryName: string }[][];
-  handednesses?: { categoryName: string }[][];
+  worldLandmarks?: Landmark[][]; // metric 3D skeleton (meters), origin at the hand centre
+  handedness?: { categoryName: string; score?: number }[][];
+  handednesses?: { categoryName: string; score?: number }[][];
 }
 interface HandLandmarkerLike { detectForVideo(image: ImageBitmap, ts: number): HandResult; }
 interface VisionApi {
@@ -124,7 +125,9 @@ interface VisionApi {
       const handed = res.handedness ?? res.handednesses ?? [];
       const hands: WorkerHand[] = res.landmarks.map((landmarks, i) => ({
         landmarks,
+        world: res.worldLandmarks?.[i] ?? landmarks, // metric 3D; fall back to image landmarks if absent
         handedness: handed[i]?.[0]?.categoryName ?? "Right",
+        score: handed[i]?.[0]?.score ?? 1,
       }));
       post({ type: "result", hands, t });
     } catch (e) {

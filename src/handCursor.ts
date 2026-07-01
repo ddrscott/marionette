@@ -11,6 +11,12 @@ import { isFist, isPinch } from "./gesture.ts";
 // centroid (the pointer) stable while triggering, so the cursor doesn't jump at the moment of click.
 export type ClickGesture = "fist" | "pinch";
 
+// One frame of hand input: IMAGE landmarks drive the on-screen position (2D is what we want for
+// pointing); WORLD landmarks (metric 3D) drive the pinch (rotation-invariant); `score` is the
+// per-hand detection confidence used to reject shaky frames. world/score are optional so a fist-only
+// caller can pass just `{ landmarks }`.
+export interface HandInput { landmarks: Landmark[]; world?: Landmark[]; score?: number; }
+
 // Fraction inset per side: the inner (1-2m) of the frame maps LINEARLY onto the full [0,1] screen, so
 // a bigger margin = more gain (less hand travel to reach an edge). Kept gentle (near-linear) because
 // consumers map this straight onto the whole screen — the on-screen keyboard/cards are a sub-region of
@@ -31,26 +37,33 @@ export interface CursorState {
 export class HandCursor {
   margin: number;
   private cooldownMs: number;
-  private detect: (lm: Landmark[]) => boolean; // the "click" gesture — fist or pinch
+  private click: ClickGesture;
+  private minConfidence: number;
   private prevClosed = false;
   private closeT0 = 0;
   private lastClickT = -1e9;
 
-  constructor(opts: { margin?: number; cooldownMs?: number; click?: ClickGesture } = {}) {
+  constructor(opts: { margin?: number; cooldownMs?: number; click?: ClickGesture; minConfidence?: number } = {}) {
     this.margin = opts.margin ?? DEFAULT_CURSOR_MARGIN;
     this.cooldownMs = opts.cooldownMs ?? 350; // min gap between clicks (prevents a double on one close)
-    this.detect = opts.click === "pinch" ? isPinch : isFist;
+    this.click = opts.click ?? "fist";
+    // Reject the click when MediaPipe isn't confident in the hand — shaky/ambiguous frames are where
+    // false pinches come from. Gates only the click, never the cursor position (which stays visible).
+    this.minConfidence = opts.minConfidence ?? 0.7;
   }
 
-  // Read one hand's landmarks for this frame (null = no hand detected).
-  read(lm: Landmark[] | null, now: number): CursorState {
-    if (!lm) { this.prevClosed = false; return { present: false, x: 0.5, y: 0.5, closed: false, clicked: false, heldMs: 0 }; }
+  // Read one hand's input for this frame (null = no hand detected).
+  read(hand: HandInput | null, now: number): CursorState {
+    if (!hand) { this.prevClosed = false; return { present: false, x: 0.5, y: 0.5, closed: false, clicked: false, heldMs: 0 }; }
+    const lm = hand.landmarks;
     let sx = 0, sy = 0;
     for (const i of PALM) { sx += lm[i].x; sy += lm[i].y; }
     sx /= PALM.length; sy /= PALM.length;
     const x = remap(1 - sx, this.margin); // mirror x to match the selfie preview
     const y = remap(sy, this.margin);
-    const closed = this.detect(lm);
+    // confidence gate + gesture: pinch uses the 3D world skeleton (rotation-invariant); fist the 2D image.
+    const confident = hand.score === undefined || hand.score >= this.minConfidence;
+    const closed = confident && (this.click === "pinch" ? isPinch(hand.world ?? lm) : isFist(lm));
     let clicked = false;
     if (closed && !this.prevClosed) {
       this.closeT0 = now;

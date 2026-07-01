@@ -42,11 +42,10 @@ function sizeOverlay(): void { camOverlay.width = camOverlay.clientWidth; camOve
     const loop = (): void => {
       const now = performance.now();
       hands.pump(now);
-      const d = hands.latest[0]; // first detected hand drives the cursor
-      const lm = d ? d.landmarks : null;
-      kb.update(lm, now);
+      const d = hands.latest[0] ?? null; // first detected hand drives the cursor (carries world + score)
+      kb.update(d, now); // `d` carries world landmarks + score for the 3D confidence-gated pinch
       display.textContent = kb.buf || " ";
-      drawHands(overlayCtx, camOverlay.width, camOverlay.height, [lm], [TEAM_TEAL]);
+      drawHands(overlayCtx, camOverlay.width, camOverlay.height, [d ? d.landmarks : null], [TEAM_TEAL]);
       requestAnimationFrame(loop);
     };
     loop();

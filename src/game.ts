@@ -195,7 +195,7 @@ function setupAudio(stage: Stage, match: Match): () => void {
         const w = match.matchWinner;
         const lm = (w !== null && stage.handStates[w].landmarks) ? stage.handStates[w].landmarks
           : (stage.handStates[0].landmarks ?? stage.handStates[1].landmarks);
-        kb.update(lm, now);
+        kb.update(lm ? { landmarks: lm } : null, now); // game keeps fist-to-press (image landmarks only)
         wasAwaiting = true;
       } else if (wasAwaiting) { kb.hideCursor(); wasAwaiting = false; }
     };

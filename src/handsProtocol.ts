@@ -10,15 +10,20 @@ export interface Landmark {
   x: number;
   y: number;
   z: number;
-  visibility: number;
+  visibility?: number; // model confidence — present on image landmarks, absent on world landmarks
 }
 
-// One detected hand: its 21 landmarks + the handedness `categoryName` ("Left"/"Right").
-// NOTE: that label is read from the UNMIRRORED camera image — main.ts still applies
+// One detected hand: its 21 IMAGE landmarks (x,y normalized, for on-screen position) PLUS its 21
+// WORLD landmarks (metric, in meters, origin at the hand centre — a true 3D skeleton that's invariant
+// to camera projection/rotation, used for the finger-to-thumb pinch), the handedness `categoryName`
+// ("Left"/"Right"), and `score` (how confident MediaPipe is in this hand — used to reject shaky frames).
+// NOTE: the handedness label is read from the UNMIRRORED camera image — main.ts still applies
 // HANDEDNESS_LABEL_IS_MIRRORED before picking the no-crossing binding (unchanged).
 export interface WorkerHand {
   landmarks: Landmark[];
+  world: Landmark[];
   handedness: string;
+  score: number;
 }
 
 // main -> worker. The ImageBitmap is TRANSFERRED (zero-copy); `t` is the (monotonically

@@ -4,8 +4,7 @@
 // looks: you move your hand to that spot on screen. DEL backspaces, OK submits. `pushChar` lets a
 // physical keyboard drive the SAME buffer. Generic — any screen can mount it; /keyboard is its test
 // bed; /game uses it (maxLen 3) for the record-break initials.
-import type { Landmark } from "./hands.ts";
-import { HandCursor, type ClickGesture } from "./handCursor.ts";
+import { HandCursor, type ClickGesture, type HandInput } from "./handCursor.ts";
 
 // QWERTY rows ending in the control keys. Laid out full-width; keys are hit-tested by their real
 // on-screen rectangles, so differing key counts per row don't matter.
@@ -70,11 +69,11 @@ export class HandKeyboard {
     else if (this.buf.length < this.maxLen) this.buf += ch;
   }
 
-  // Feed one hand's landmarks each frame (null = no hand). Maps the palm cursor LINEARLY onto the
-  // field, positions it in screen space, highlights the key under it (by real rect), and presses on
-  // the fist-close edge.
-  update(lm: Landmark[] | null, now: number): void {
-    const cs = this.pointer.read(lm, now);
+  // Feed one hand's input each frame (null = no hand). Maps the palm cursor LINEARLY onto the field,
+  // positions it in screen space, highlights the key under it (by real rect), and presses on the
+  // click (fist-close or finger-thumb pinch) edge.
+  update(hand: HandInput | null, now: number): void {
+    const cs = this.pointer.read(hand, now);
     if (!cs.present) { this.hideCursor(); this.highlight(-1, -1); return; }
     const fr = this.field.getBoundingClientRect();
     const px = fr.left + cs.x * fr.width;   // screen-space cursor point (client px)

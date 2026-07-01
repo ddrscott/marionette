@@ -135,8 +135,8 @@ const gridCenter = (i: number, W: number): Vec2 => ({ x: (i % 5 - 2) * colGap(W)
         renderer.drawLabel(0, 11.3, "PICK YOUR FIGHTER", TEAM_TEAL, true);
         renderer.drawLabel(0, 10.75, lm ? "hover a fighter and make a fist" : "raise a hand to choose", "#9a968e", false);
 
-        // shared camera cursor: palm centre points (margin-mapped so you reach the edges), close to click
-        const cs = cursor.read(lm, now);
+        // shared camera cursor: palm centre points (margin-mapped so you reach the edges), fist to click
+        const cs = cursor.read(det, now);
         const curX = (cs.x - 0.5) * W;
         const curY = (1 - cs.y) * WORLD_VIEW_HEIGHT;
 

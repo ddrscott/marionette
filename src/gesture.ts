@@ -15,13 +15,17 @@ export function isFist(lm: Landmark[]): boolean {
   return curled >= 3;
 }
 
-// PINCH detector — the finger-to-thumb "click": the thumb tip (4) touching ANY fingertip
-// (index/middle/ring/pinky). Distance is normalized by hand scale (wrist→middle-MCP) so it's
-// invariant to hand size/distance; the palm centroid barely moves during a pinch, so the cursor
-// stays put at the moment of click. An open/relaxed hand keeps thumb↔fingertip ≳ 0.6, a pinch ≲ 0.3.
-export function isPinch(lm: Landmark[]): boolean {
-  const thumb = lm[4], wrist = lm[0], mcp9 = lm[9];
-  const scale = Math.hypot(mcp9.x - wrist.x, mcp9.y - wrist.y) || 1e-3;
-  for (const t of FIST_TIPS) if (Math.hypot(lm[t].x - thumb.x, lm[t].y - thumb.y) / scale < 0.45) return true;
+// PINCH detector — the finger-to-thumb "click". Uses MediaPipe's 3D WORLD landmarks (metric, meters),
+// NOT the 2D image projection: in 2D, rotating the hand collapses the thumb→finger gap and false-fires
+// a pinch even when nothing touches. In true 3D that gap stays real, so rotation no longer reads as a
+// pinch. Distance is thumb tip (4) to the index (8) or middle (12) tip — the natural pinch fingers,
+// fewer false positives than all four — normalized by 3D hand scale (wrist→middle-MCP) for size
+// invariance. Open hand keeps the ratio ≳ 0.7, a real pinch ≲ 0.3.
+const PINCH_TIPS = [8, 12];
+const dist3 = (a: Landmark, b: Landmark): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+export function isPinch(world: Landmark[]): boolean {
+  const thumb = world[4];
+  const scale = dist3(world[9], world[0]) || 1e-3;
+  for (const t of PINCH_TIPS) if (dist3(world[t], thumb) / scale < 0.45) return true;
   return false;
 }
