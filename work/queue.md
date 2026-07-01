@@ -1,5 +1,7 @@
 # Work Queue
 
+- [-] Redesign the 10 characters to be radically distinct (orientation, limb count, body size, limb length — kill the biped sameness; keep ≥5 cuttable strings) — see [distinct-rigs.md](distinct-rigs.md)
+
 - [x] Control bar can pitch/roll/yaw to match hand orientation (physical via strings, ortho-simulated) — see [control-bar-pitch.md](control-bar-pitch.md)
 - [x] Taut center string; loose limb strings as bezier curves — see [loose-string-beziers.md](loose-string-beziers.md)
 - [x] Direct hand→cross mapping (2 measured points) + cut control-path latency — see [direct-cross-mapping.md](direct-cross-mapping.md)
