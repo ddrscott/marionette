@@ -32,6 +32,7 @@ const STEADY_MARGIN = 0.5;    // world units a fingertip may wander and still co
 const ATTACH_STRING_MS = 200; // each string attaches over 0.2s
 const ATTACH_MARGIN = 0.8;    // move a fingertip more than this DURING attach -> the attach fails
 const GRACE_MS = 500;         // hand absent this long -> detach + back to waiting (rides out brief gaps)
+const BIND_TIMEOUT_MS = 800;  // a hand's puppet binding frees this long after its handedness disappears
 const ATTACH_ORDER = [2, 0, 4, 1, 3]; // slot order strings snap on: torso(head) first, then hands, feet
 
 // ---- post-attach "settle ramp" ----
@@ -154,6 +155,11 @@ export class Stage {
   // index 0..4 in attach order). The game wires this to the rising attach SFX; unused by the harness.
   onAttach?: (slot: 0 | 1, stringIndex: number) => void;
 
+  // Per-slot handedness binding: which hand ("Left"/"Right") drives each puppet. Set on the raise,
+  // kept stable so a hand keeps its puppet even after crossing the center line (no swap).
+  private slotCat: [string | null, string | null] = [null, null];
+  private slotSeenT: [number, number] = [-1e9, -1e9]; // last time each slot's bound hand was seen
+
   private overlayCtx: CanvasRenderingContext2D;
   private lastSeq = -1;
   private frames = 0;
@@ -246,12 +252,26 @@ export class Stage {
       this.readFingerPositions(h, d.landmarks, now, slot);
     };
 
-    if (dets.length === 1) {
-      assign(dets[0].wristX < 0 ? 0 : 1, dets[0]);
-    } else if (dets.length >= 2) {
-      dets.sort((a, b) => a.wristX - b.wristX);
-      assign(0, dets[0]);
-      assign(1, dets[1]);
+    // Free a slot's binding once its hand's handedness has been gone a while, so a new raise rebinds it.
+    if (now - this.slotSeenT[0] > BIND_TIMEOUT_MS) this.slotCat[0] = null;
+    if (now - this.slotSeenT[1] > BIND_TIMEOUT_MS) this.slotCat[1] = null;
+
+    // 1) Maintain identity: a hand drives the slot bound to its HANDEDNESS — even across the center
+    //    line — so control never swaps when hands cross (position is no longer used to re-sort).
+    const leftover: Det[] = [];
+    for (const d of dets) {
+      const s: 0 | 1 | null = this.slotCat[0] === d.cat ? 0 : this.slotCat[1] === d.cat ? 1 : null;
+      if (s !== null && !hs[s].present) { assign(s, d); this.slotSeenT[s] = now; }
+      else leftover.push(d); // unbound handedness, or a duplicate of an already-filled slot
+    }
+    // 2) Bind a not-yet-bound hand to a free slot — preferring the side it was raised on ("raise a hand").
+    for (const d of leftover) {
+      const pref: 0 | 1 = d.wristX < 0 ? 0 : 1;
+      const other: 0 | 1 = pref === 0 ? 1 : 0;
+      let s: 0 | 1 | null = null;
+      if (this.slotCat[pref] === null && !hs[pref].present) s = pref;
+      else if (this.slotCat[other] === null && !hs[other].present) s = other;
+      if (s !== null) { this.slotCat[s] = d.cat; assign(s, d); this.slotSeenT[s] = now; }
     }
 
     if (!hs[0].present) hs[0].primed = false;
