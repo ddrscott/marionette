@@ -3,7 +3,7 @@
 // same component. Physical keyboard works too.
 import { initHands, isQualityTier, DEFAULT_QUALITY, type QualityTier } from "./hands.ts";
 import { drawHands, TEAM_TEAL } from "./draw.ts";
-import { HandKeyboard } from "./handkeyboard.ts";
+import { HandKeyboard, SYMBOL_CHARS } from "./handkeyboard.ts";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -31,7 +31,10 @@ function sizeOverlay(): void { camOverlay.width = camOverlay.clientWidth; camOve
     addEventListener("keydown", (e) => {
       if (e.key === "Backspace") { kb.pushChar("DEL"); e.preventDefault(); return; }
       if (e.key === "Enter") { kb.pushChar("OK"); return; }
-      if (/^[a-z]$/i.test(e.key)) kb.pushChar(e.key.toUpperCase());
+      if (e.key === " ") { kb.pushChar(" "); e.preventDefault(); return; } // spacebar → space (don't scroll)
+      if (/^[a-z]$/i.test(e.key)) { kb.pushChar(e.key.toUpperCase()); return; }
+      // digits + the curated symbols type on any layer (physical input bypasses the on-screen layer)
+      if (e.key.length === 1 && (/[0-9]/.test(e.key) || SYMBOL_CHARS.includes(e.key))) kb.pushChar(e.key);
     });
 
     sizeOverlay();

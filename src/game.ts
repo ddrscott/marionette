@@ -6,7 +6,7 @@ import { Match, MAX_STRINGS, WINS_NEEDED, type GamePhase } from "./match.ts";
 import { isQualityTier, DEFAULT_QUALITY, type QualityTier } from "./hands.ts";
 import { unlock, audioReady, getMuted, setMuted, sfx } from "./sound.ts";
 import { music } from "./music.ts";
-import { HandKeyboard } from "./handkeyboard.ts";
+import { HandKeyboard, SYMBOL_CHARS } from "./handkeyboard.ts";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -179,7 +179,9 @@ function setupAudio(stage: Stage, match: Match): () => void {
       if (!match.awaitingInitials) return;
       if (e.key === "Backspace") { kb.pushChar("DEL"); e.preventDefault(); return; }
       if (e.key === "Enter") { kb.pushChar("OK"); return; }
-      if (/^[a-z]$/i.test(e.key)) kb.pushChar(e.key.toUpperCase());
+      if (e.key === " ") { kb.pushChar(" "); e.preventDefault(); return; } // spacebar → space (respects maxLen)
+      if (/^[a-z]$/i.test(e.key)) { kb.pushChar(e.key.toUpperCase()); return; }
+      if (e.key.length === 1 && (/[0-9]/.test(e.key) || SYMBOL_CHARS.includes(e.key))) kb.pushChar(e.key);
     });
 
     setupFullscreen();
