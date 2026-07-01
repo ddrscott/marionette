@@ -200,7 +200,11 @@ body.game #camLabel { display: none; }
   width: min(74cqw, 820px); margin: 18px auto 0; }
 .re-row { display: flex; gap: clamp(4px, .8cqmin, 9px); }
 .re-cell { flex: 1; height: clamp(30px, 7cqmin, 62px); display: grid; place-items: center; border: 1px solid var(--line);
-  border-radius: 6px; background: rgba(20, 20, 26, .5); color: #d8d4cc; font: 700 clamp(13px, 2.6cqmin, 28px)/1 var(--display); }
+  border-radius: 6px; background: rgba(20, 20, 26, .5); color: #d8d4cc; font: 700 clamp(13px, 2.6cqmin, 28px)/1 var(--display);
+  /* tappable by mouse/touch/pen too: pointer affordance, no text-select, no double-tap zoom or scroll */
+  cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+/* brief pressed flash on a mouse click / touch tap — reads as a press, separate from the hand's .on */
+.re-cell.pressed { border-color: var(--accent); color: var(--accent); background: rgba(79, 176, 170, .28); box-shadow: 0 0 20px rgba(79, 176, 170, .7); }
 .re-cell.re-ctrl { color: var(--dim); font-size: clamp(10px, 1.7cqmin, 18px); letter-spacing: .05em; }
 /* wide spacebar (both layers): grows to fill the bottom row, sitting beside OK like a real keyboard */
 .re-cell.re-space { flex: 6; color: var(--dim); font-size: clamp(10px, 1.7cqmin, 18px); letter-spacing: .18em; text-transform: uppercase; }

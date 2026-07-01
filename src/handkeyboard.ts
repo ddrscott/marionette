@@ -66,6 +66,38 @@ export class HandKeyboard {
     // The cursor floats in SCREEN space (fixed) so it lands exactly where the hand points, over any key.
     this.cursor.style.position = "fixed";
     this.cursor.style.zIndex = "60";
+    // Mouse/touch/pen is a THIRD input model alongside the hand cursor and the physical keyboard. One
+    // delegated listener on the (persistent) grid survives buildLayer's per-toggle re-render, so we
+    // don't re-bind per cell. pointerdown covers mouse+touch+pen and dodges the ~300ms click delay.
+    this.grid.addEventListener("pointerdown", (e) => this.onPointerDown(e));
+  }
+
+  // Route a tap/click through the SAME press path as the hand. Find the tapped `.re-cell`, map it back
+  // to its (r,c), and press it. preventDefault stops text selection, mobile double-tap zoom, and the
+  // synthetic mouse-click that follows a touch (so a tap fires exactly once).
+  private onPointerDown(e: PointerEvent): void {
+    const cellEl = (e.target as HTMLElement | null)?.closest(".re-cell") as HTMLElement | null;
+    if (!cellEl) return;
+    const cell = this.cells.find((c) => c.el === cellEl);
+    if (!cell) return;
+    e.preventDefault();
+    this.flashPressed(cellEl);
+    this.press(LAYOUTS[this.layer][cell.r][cell.c]);
+  }
+
+  // Brief pressed-state feedback for a tap/click — a self-clearing class distinct from the hand's `.on`
+  // highlight, so it never fights the per-frame highlight when a hand is also present.
+  private flashPressed(el: HTMLElement): void {
+    el.classList.add("pressed");
+    window.setTimeout(() => el.classList.remove("pressed"), 140);
+  }
+
+  // The ONE shared press path for every input model (hand, mouse/touch, and — via pushChar — the
+  // physical keyboard): toggles swap the layer (no char), SPACE inserts a space, everything else
+  // (DEL/OK/char) goes to pushChar. Keeps the special-key semantics in a single place (DRY).
+  private press(key: string): void {
+    if (isToggle(key)) { sfx.key(); this.setLayer(this.layer === 0 ? 1 : 0); } // ?123 ⇄ ABC — clicks, never types
+    else this.pushChar(key === "SPACE" ? " " : key);                           // SPACE → " "; DEL/OK/char as usual
   }
 
   // (Re)render the active layer's keys into the grid. Called on mount and on every layer toggle. The
@@ -137,11 +169,7 @@ export class HandKeyboard {
       if (px >= b.left && px <= b.right && py >= b.top && py <= b.bottom) { hit = cell; break; }
     }
     this.highlight(hit ? hit.r : -1, hit ? hit.c : -1);
-    if (cs.clicked && hit) { // pinch/fist over a key to press it
-      const key = LAYOUTS[this.layer][hit.r][hit.c];
-      if (isToggle(key)) { sfx.key(); this.setLayer(this.layer === 0 ? 1 : 0); } // ?123 ⇄ ABC — clicks but never types a char
-      else this.pushChar(key === "SPACE" ? " " : key);           // SPACE → " "; DEL/OK/char as usual
-    }
+    if (cs.clicked && hit) this.press(LAYOUTS[this.layer][hit.r][hit.c]); // pinch/fist over a key = press
 
     // Pinky-to-thumb pinch = DELETE — a distinct gesture from the index/middle press, position-agnostic.
     // Pinch mode only (needs the 3D world skeleton); its own rising-edge + cooldown + confidence gate.
