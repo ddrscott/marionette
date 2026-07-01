@@ -23,6 +23,11 @@ export interface HandInput { landmarks: Landmark[]; world?: Landmark[]; score?: 
 // it, so they already need less than full reach. ~1.4× gain: the central 70% of the frame → full screen.
 export const DEFAULT_CURSOR_MARGIN = 0.15;
 
+// Reject a click when MediaPipe's per-hand confidence is below this — shaky/ambiguous frames are where
+// false pinches come from. Shared so every click gesture (cursor click + the keyboard's pinky-delete)
+// uses one bar.
+export const CLICK_MIN_CONFIDENCE = 0.7;
+
 const PALM = [0, 5, 9, 13, 17]; // wrist + index/middle/ring/pinky MCPs — a stable palm centre under a fist
 const remap = (v: number, m: number): number => Math.min(1, Math.max(0, (v - m) / Math.max(1e-3, 1 - 2 * m)));
 
@@ -47,9 +52,8 @@ export class HandCursor {
     this.margin = opts.margin ?? DEFAULT_CURSOR_MARGIN;
     this.cooldownMs = opts.cooldownMs ?? 350; // min gap between clicks (prevents a double on one close)
     this.click = opts.click ?? "fist";
-    // Reject the click when MediaPipe isn't confident in the hand — shaky/ambiguous frames are where
-    // false pinches come from. Gates only the click, never the cursor position (which stays visible).
-    this.minConfidence = opts.minConfidence ?? 0.7;
+    // Gates only the click, never the cursor position (which stays visible).
+    this.minConfidence = opts.minConfidence ?? CLICK_MIN_CONFIDENCE;
   }
 
   // Read one hand's input for this frame (null = no hand detected).
