@@ -105,7 +105,7 @@ body.game #stage {
 .hud-top { position: absolute; top: 0; left: 0; right: 0; display: grid; grid-template-columns: 1fr auto 1fr; align-items: start; gap: 22px; padding: 16px 22px; }
 .hud-top .side { min-width: 0; }
 .hud-top .side.right { display: flex; flex-direction: column; align-items: flex-end; }
-.pname { font: 700 clamp(11px, 1.3cqmin, 20px)/1 var(--ui); letter-spacing: .22em; color: #fff; opacity: .9; margin: 0 6px 5px; }
+.pname { font: 700 clamp(15px, 2.4cqmin, 30px)/1 var(--ui); letter-spacing: .22em; color: #fff; opacity: .9; margin: 0 6px 6px; }
 .side.left .pname { text-shadow: 0 0 12px var(--p1); }
 .side.right .pname { text-shadow: 0 0 12px var(--p2); }
 
@@ -137,7 +137,7 @@ body.game #stage {
 .timer { font: 400 clamp(42px, 5cqmin, 82px)/1 var(--display); color: #fff; text-shadow: 0 2px 4px #000, 0 0 22px rgba(255,255,255,.25); }
 .timer.low { color: var(--danger); text-shadow: 0 0 24px rgba(226,81,42,.7); animation: timerPulse .6s ease-in-out infinite; }
 @keyframes timerPulse { 50% { transform: scale(1.12); } }
-.rounds { font: 600 10px/1 var(--ui); letter-spacing: .26em; color: var(--dim); margin-top: 6px; }
+.rounds { font: 600 clamp(11px, 1.6cqmin, 20px)/1 var(--ui); letter-spacing: .26em; color: var(--dim); margin-top: 7px; }
 
 .announce { position: absolute; top: 57%; left: 0; right: 0; text-align: center; transform: translateY(-50%); }
 #annc {
@@ -167,8 +167,8 @@ body.game #camLabel { display: none; }
   letter-spacing: .06em; text-transform: uppercase; opacity: .7; pointer-events: none; }
 
 /* win streak + all-time record (center HUD, under BEST OF 5) */
-.streak { font: 700 12px/1 var(--ui); letter-spacing: .12em; color: var(--accent); margin-top: 6px; min-height: 12px; text-shadow: 0 0 10px rgba(79,176,170,.5); }
-.rec { font: 600 11px/1 var(--ui); letter-spacing: .14em; color: var(--dim); margin-top: 5px; min-height: 11px; }
+.streak { font: 700 clamp(14px, 2cqmin, 24px)/1 var(--ui); letter-spacing: .12em; color: var(--accent); margin-top: 8px; min-height: 16px; text-shadow: 0 0 10px rgba(79,176,170,.5); }
+.rec { font: 600 clamp(12px, 1.8cqmin, 22px)/1 var(--ui); letter-spacing: .14em; color: var(--dim); margin-top: 6px; min-height: 14px; }
 
 /* arcade initials entry — shown only on a record break */
 .record-entry { position: absolute; top: 39%; left: 0; right: 0; text-align: center; transform: translateY(-50%); }
