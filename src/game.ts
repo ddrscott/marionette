@@ -172,7 +172,7 @@ function setupAudio(stage: Stage, match: Match): () => void {
 
     const match = new Match();
 
-    // Initials on a record break — the shared hand keyboard (finger-gun) capped to 3, OR a physical
+    // Initials on a record break — the shared hand keyboard (palm cursor + fist) capped to 3, OR a physical
     // keyboard, both feeding one buffer. Gated on awaitingInitials so normal keys (M-mute) are unaffected.
     const kb = new HandKeyboard($("initGrid"), $("initCursor"), { maxLen: 3, onSubmit: (t) => match.submitInitials(t) });
     addEventListener("keydown", (e) => {
@@ -190,8 +190,8 @@ function setupAudio(stage: Stage, match: Match): () => void {
       renderHud(match, kb.buf);
       audioTick();
       if (match.awaitingInitials) {
-        if (!wasAwaiting) kb.reset(); // fresh cursor / thumb-edge state on a new record break
-        // drive the finger-gun cursor from the winner's hand (fall back to any present hand)
+        if (!wasAwaiting) kb.reset(); // fresh cursor / click state on a new record break
+        // drive the palm cursor from the winner's hand (fall back to any present hand)
         const w = match.matchWinner;
         const lm = (w !== null && stage.handStates[w].landmarks) ? stage.handStates[w].landmarks
           : (stage.handStates[0].landmarks ?? stage.handStates[1].landmarks);

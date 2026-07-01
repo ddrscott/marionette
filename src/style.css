@@ -198,7 +198,10 @@ body.game #camLabel { display: none; }
 .re-cell.re-ctrl { color: var(--dim); font-size: clamp(10px, 1.7cqmin, 18px); letter-spacing: .05em; }
 .re-cell.on { border-color: var(--accent); color: var(--accent); background: rgba(79, 176, 170, .14); box-shadow: 0 0 16px rgba(79, 176, 170, .55); }
 .init-cursor { position: absolute; width: clamp(12px, 1.8cqmin, 22px); aspect-ratio: 1; margin: 0; translate: -50% -50%;
-  border-radius: 50%; background: var(--accent); box-shadow: 0 0 14px var(--accent); pointer-events: none; opacity: 0; }
+  border-radius: 50%; background: transparent; border: 2px solid var(--accent); box-shadow: 0 0 14px var(--accent);
+  pointer-events: none; opacity: 0; transition: transform .06s ease, background .06s ease; }
+/* fist closed = the cursor fills + shrinks slightly, so "press" reads clearly */
+.init-cursor.closed { background: var(--accent); transform: scale(0.72); }
 
 /* ===== portrait-lock: on touch devices held in portrait, force landscape ===== */
 .rotate-gate { display: none; }

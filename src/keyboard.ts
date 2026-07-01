@@ -1,5 +1,5 @@
 // /keyboard — test bed for the shared hand keyboard component (src/handkeyboard.ts). Just hand
-// detection + the keyboard; no physics/game. Use it to tune the finger-gun; other screens mount the
+// detection + the keyboard; no physics/game. Use it to tune the hand cursor; other screens mount the
 // same component. Physical keyboard works too.
 import { initHands, isQualityTier, DEFAULT_QUALITY, type QualityTier } from "./hands.ts";
 import { drawHands, TEAM_TEAL } from "./draw.ts";

@@ -12,8 +12,7 @@ import {
 import { RIGS } from "./rigs.ts";
 import { Pilot, type PilotCfg } from "./pilot.ts";
 import { Renderer, drawHands, teamColor, TEAM_TEAL } from "./draw.ts";
-import { stageX, stageY } from "./control.ts";
-import { isFist } from "./gesture.ts";
+import { HandCursor } from "./handCursor.ts";
 import { initHands, isQualityTier, DEFAULT_QUALITY, type QualityTier } from "./hands.ts";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -31,7 +30,6 @@ const ROW_Y = [8.5, 4.3];        // root y of the top / bottom grid rows
 const CARD_DY = -0.3;            // card centre relative to the root (visual middle of the preview)
 const CARD_HALF_H = 1.7;
 const LABEL_DY = -1.75;          // name label offset below the root
-const SELECT_DWELL_MS = 500;     // hold a fist over a card this long to lock the pick
 const RESET_MS = 1200;           // hand gone this long during tryout -> back to select
 
 // column gap + a fighter's grid centre, derived live from the visible width so the grid reflows on resize
@@ -71,8 +69,8 @@ const gridCenter = (i: number, W: number): Vec2 => ({ x: (i % 5 - 2) * colGap(W)
     let selIdx = -1;
     let pilot: Pilot | null = null;
     let hover = -1;
-    let fistT0 = -1;
     let lastHandT = performance.now();
+    const cursor = new HandCursor(); // shared palm-cursor + fist-to-click (same model as the keyboard)
 
     const buildGrid = (): void => {
       const W = renderer.worldWidth;
@@ -85,7 +83,7 @@ const gridCenter = (i: number, W: number): Vec2 => ({ x: (i % 5 - 2) * colGap(W)
       for (const f of fallers) removePuppet(world, f);
       fallers = [];
       pilot = null;
-      selIdx = -1; hover = -1; fistT0 = -1;
+      selIdx = -1; hover = -1;
       buildGrid();
       mode = "select";
     };
@@ -137,16 +135,14 @@ const gridCenter = (i: number, W: number): Vec2 => ({ x: (i % 5 - 2) * colGap(W)
         renderer.drawLabel(0, 11.3, "PICK YOUR FIGHTER", TEAM_TEAL, true);
         renderer.drawLabel(0, 10.75, lm ? "hover a fighter and make a fist" : "raise a hand to choose", "#9a968e", false);
 
-        // hover from the palm centre (landmark 9) — stable while the fingers curl into a fist
-        let curX = 0, curY = 0, has = false;
-        if (lm) {
-          curX = stageX(lm[9], cfg.playMargin) * W;
-          curY = WORLD_VIEW_HEIGHT / 2 + stageY(lm[9], cfg.playMargin) * WORLD_VIEW_HEIGHT;
-          has = true;
-        }
+        // shared camera cursor: palm centre points (margin-mapped so you reach the edges), close to click
+        const cs = cursor.read(lm, now);
+        const curX = (cs.x - 0.5) * W;
+        const curY = (1 - cs.y) * WORLD_VIEW_HEIGHT;
+
         // which card is under the cursor?
         hover = -1;
-        if (has) {
+        if (cs.present) {
           const hw = colGap(W) * 0.42;
           for (let i = 0; i < RIGS.length; i++) {
             const c = gridCenter(i, W);
@@ -157,21 +153,15 @@ const gridCenter = (i: number, W: number): Vec2 => ({ x: (i % 5 - 2) * colGap(W)
         grid.forEach((p, i) => {
           const c = gridCenter(i, W);
           const active = i === hover;
-          const prog = active && fistT0 >= 0 ? Math.min(1, (now - fistT0) / SELECT_DWELL_MS) : 0;
-          renderer.drawSelector(c.x, c.y + CARD_DY, colGap(W) * 0.42, CARD_HALF_H, prog, RIGS[i].accent);
+          renderer.drawSelector(c.x, c.y + CARD_DY, colGap(W) * 0.42, CARD_HALF_H, 0, RIGS[i].accent);
           renderer.drawPuppet(p);
           renderer.drawLabel(c.x, c.y + LABEL_DY, RIGS[i].name, RIGS[i].accent, active);
         });
 
-        // fist-to-pick
-        if (has && hover >= 0 && lm && isFist(lm)) {
-          if (fistT0 < 0) fistT0 = now;
-          if (now - fistT0 >= SELECT_DWELL_MS) pick(hover);
-        } else {
-          fistT0 = -1;
-        }
+        // close your fist over a fighter to pick it (rising-edge click, debounced)
+        if (cs.present && hover >= 0 && cs.clicked) pick(hover);
 
-        if (has) renderer.drawCursor(curX, curY, TEAM_TEAL, !!(lm && isFist(lm)));
+        if (cs.present) renderer.drawCursor(curX, curY, TEAM_TEAL, cs.closed);
       } else if (mode === "try" && chosen && pilot) {
         pilot.feed(lm, now);
         pilot.update(now, dt);
