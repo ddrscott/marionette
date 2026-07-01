@@ -15,4 +15,5 @@
 - [x] Keep the hand-outline prompts up through ATTACHING (users move too soon when they vanish) — see [prompt-through-attach.md](prompt-through-attach.md)
 - [x] Letterbox /game to 16:10 (ref 1280×800) + full readability pass (canvas text in world units) — see [readability-16x10.md](readability-16x10.md)
 - [x] Fullscreen button on /game (Fullscreen API toggle, Lucide maximize/minimize icon, corner) — see [fullscreen-button.md](fullscreen-button.md)
+- [x] Fit the canvas on mount (no manual resize needed) — ResizeObserver + re-derive puppet quarters — see [fit-on-mount.md](fit-on-mount.md)
 - [x] Off-thread hand detection — CLASSIC web worker, async/best-effort (profiled: detection = 24.6ms) — see [hands-web-worker.md](hands-web-worker.md)

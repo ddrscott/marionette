@@ -178,6 +178,10 @@ export class Stage {
     this.overlayCtx = camOverlay.getContext("2d")!;
     for (const p of puppets) setPuppetWeight(p, this.weight);
     addEventListener("resize", () => this.onResize());
+    // Fit on mount: the canvas is first sized before the layout has settled (letterbox min() sizing,
+    // fonts). A ResizeObserver fires right after the initial layout (and on any later change), so the
+    // canvas + puppet quarters snap correct without needing a manual window resize.
+    new ResizeObserver(() => this.onResize()).observe(this.renderer.canvas);
   }
 
   static async create(opts: StageOpts): Promise<Stage> {
@@ -213,7 +217,21 @@ export class Stage {
     this.camOverlay.width = this.camOverlay.clientWidth;
     this.camOverlay.height = this.camOverlay.clientHeight;
   }
-  private onResize(): void { this.renderer.resize(); this.sizeOverlay(); }
+  private onResize(): void { this.renderer.resize(); this.sizeOverlay(); this.requarter(); }
+
+  // Keep the two puppets on the screen quarters when the visible width changes (after the layout
+  // settles post-mount, or a window resize). Only re-home WAITING puppets — never yank a live one.
+  private requarter(): void {
+    const offset = Math.max(PUPPET_X_OFFSET, this.renderer.worldWidth / 4);
+    for (let s = 0 as 0 | 1; s <= 1; s = (s + 1) as 0 | 1) {
+      const targetX = s === 0 ? -offset : offset;
+      const p = this.puppets[s];
+      if (this.slotStates[s].phase === "waiting" && Math.abs(p.homeTorso.x - targetX) > 0.02) {
+        p.homeTorso.x = targetX; // the waiting state re-homes the body to homeTorso each frame
+        p.xOffset = targetX;     // the prompt outline + team colour read from xOffset
+      }
+    }
+  }
 
   private readFingerPositions(h: HandState, landmarks: Landmark[], now: number, slot: 0 | 1): void {
     for (let j = 0; j < FINGERTIPS.length; j++) {

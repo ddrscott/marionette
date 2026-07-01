@@ -35,6 +35,7 @@ function sizeOverlay(): void { camOverlay.width = camOverlay.clientWidth; camOve
 
     sizeOverlay();
     addEventListener("resize", sizeOverlay);
+    new ResizeObserver(sizeOverlay).observe(camOverlay); // fit on mount without a manual resize
     $("boot").remove();
 
     const loop = (): void => {

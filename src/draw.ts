@@ -57,7 +57,7 @@ export class Renderer {
   private ctx: CanvasRenderingContext2D;
   scale = 80; // px per world unit; recomputed on resize from the FIXED world view height
 
-  constructor(private canvas: HTMLCanvasElement) {
+  constructor(readonly canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("2D canvas context unavailable");
     this.ctx = ctx;
