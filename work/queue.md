@@ -1,5 +1,7 @@
 # Work Queue
 
+- [-] Debug overlay on /keyboard — live finger→thumb distance ratios (vs 0.45 threshold) + confidence score (vs 0.9 gate) + hand edge-position, to diagnose left-edge gesture dropoff; reuse gesture.ts math (DRY), diagnostic-only — see [keyboard-debug-overlay.md](keyboard-debug-overlay.md)
+
 - [x] Make the camera preview draggable (mouse + touch) on /game, /characters, /keyboard — free placement, clamped on-screen (safe-area aware), persisted via localStorage; shared helper, not per-scene — see [draggable-camera.md](draggable-camera.md)
 
 - [x] Play a click sound (public/assets/kb-click.wav) on every accepted keyboard key — both hand presses and physical typing, triggered in HandKeyboard.pushChar; add a sample player to sound.ts (shared bus/mute), unlock audio on /keyboard — see [keyboard-click-sound.md](keyboard-click-sound.md)
