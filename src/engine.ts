@@ -409,11 +409,17 @@ export class Stage {
     r.clear();
     for (let s = 0 as 0 | 1; s <= 1; s = (s + 1) as 0 | 1) {
       r.drawPuppet(this.puppets[s]);
-      const ph = this.slotStates[s].phase;
-      if (ph === "waiting" || ph === "steadying") {
-        const prog = ph === "steadying" ? Math.min(1, (now - this.slotStates[s].steadyT0) / HOLD_MS) : 0;
+      const st = this.slotStates[s];
+      const ph = st.phase;
+      // Keep the hand outline + live points up through the WHOLE attach (until `running`), so the
+      // player holds still until the last string snaps on instead of moving the moment the hold ends.
+      // The bar stays full during `attaching` (the strings visibly snapping on carry the progress).
+      if (ph === "waiting" || ph === "steadying" || ph === "attaching") {
+        const prog = ph === "steadying" ? Math.min(1, (now - st.steadyT0) / HOLD_MS) : ph === "attaching" ? 1 : 0;
         r.drawPrompt(this.puppets[s].xOffset, s, prog, now);
-        if (ph === "steadying" && this.handStates[s].present) r.drawFingerPoints(this.handStates[s].pos, teamColor(this.puppets[s].xOffset));
+        if ((ph === "steadying" || ph === "attaching") && this.handStates[s].present) {
+          r.drawFingerPoints(this.handStates[s].pos, teamColor(this.puppets[s].xOffset));
+        }
       }
     }
     if (this.debug) r.drawDebug(this.world, this.puppets.flatMap((p) => p.strings));

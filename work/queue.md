@@ -12,4 +12,5 @@
 - [x] Game audio — procedural WebAudio SFX (slice/clash/etc.) + adaptive music (port false-alarms-web) — see [game-audio.md](game-audio.md)
 - [x] Fix attach "seizure" — puppet spasms for seconds after strings attach before settling — see [attach-seizure.md](attach-seizure.md)
 - [x] Recolor to a duotone (teal + rust) theme — kill the rainbow; per-player team colors — see [color-theme.md](color-theme.md)
+- [x] Keep the hand-outline prompts up through ATTACHING (users move too soon when they vanish) — see [prompt-through-attach.md](prompt-through-attach.md)
 - [x] Off-thread hand detection — CLASSIC web worker, async/best-effort (profiled: detection = 24.6ms) — see [hands-web-worker.md](hands-web-worker.md)
