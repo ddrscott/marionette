@@ -39,8 +39,7 @@ function sizeOverlay(): void { camOverlay.width = camOverlay.clientWidth; camOve
     // starts a fresh phrase once a round is done.
     const kb = new HandKeyboard($("kbstage"), $("kbGrid"), $("kbCursor"), {
       click: "pinch",
-      onSubmit: () => { if (phase === "done") newRound(); },
-      onClear: () => restartRound(), // CLEAR key → redo the SAME phrase from scratch (timer resets)
+      onClear: () => resetRound(), // CLEAR key → redo the SAME phrase (wipes + re-counts down)
     });
 
     // ---- "Air Keyboard for Germaphobes" typing mini-game ----------------------------------------
@@ -58,14 +57,26 @@ function sizeOverlay(): void { camOverlay.width = camOverlay.clientWidth; camOve
       "TYPING WITHOUT ALL THE TOUCHING",
     ];
     const LS_BEST = "handbattle.kb.bestMs";
+    const COUNTDOWN_MS = 3000; // 3·2·1 before the clock starts
+    const GRACE_MS = 500;      // a hand must be gone this long to pause (rides out detection flicker)
     const kbPrompt = $("kbPrompt");
     const kbTimer = $("kbTimer");
     const kbHint = $("kbHint");
-    const kbNext = $<HTMLButtonElement>("kbNext");
-    let phase: "ready" | "running" | "done" = "ready";
+    const kbResume = $<HTMLButtonElement>("kbResume");
+    const kbReset = $<HTMLButtonElement>("kbReset");
+    const kbNew = $<HTMLButtonElement>("kbNew");
+    type Phase = "waiting" | "countdown" | "running" | "paused" | "done";
+    let phase: Phase = "waiting";
     let prompt = "";
-    let startMs = 0;
+    let startMs = 0;           // wall-clock the attempt started (shifted on resume so elapsed continues)
+    let countdownStart = 0;
+    let pausedElapsed = 0;     // ms elapsed at pause, so resume continues instead of restarting
+    let lastSeenMs = -1e9;     // last frame a hand was present (grace debounce for enter/exit)
     let bestMs = Number(localStorage.getItem(LS_BEST)) || 0; // 0 = no record yet
+
+    const setButtons = (resume: boolean, reset: boolean, neu: boolean): void => {
+      kbResume.hidden = !resume; kbReset.hidden = !reset; kbNew.hidden = !neu;
+    };
 
     // Draw the prompt with the correctly-typed prefix in accent, the next expected char underlined (red
     // if a wrong char is sitting there), and the rest dim. Prompt text is a fixed constant (A–Z + space),
@@ -82,34 +93,35 @@ function sizeOverlay(): void { camOverlay.width = camOverlay.clientWidth; camOve
         `<span class="p-rest">${prompt.slice(i + 1)}</span>`;
     };
 
-    const newRound = (): void => {
-      let p = prompt;
-      while (p === prompt && PHRASES.length > 1) p = PHRASES[Math.floor(Math.random() * PHRASES.length)];
-      prompt = p || PHRASES[0];
+    // Arm a fresh attempt of the CURRENT `prompt` → waiting. The countdown begins once a hand appears.
+    const toWaiting = (): void => {
       kb.reset();                 // clears the buffer + returns to the letters layer
-      phase = "ready";
-      startMs = 0;
+      phase = "waiting";
+      startMs = 0; pausedElapsed = 0;
       kbTimer.textContent = "0.0s";
       result.textContent = "";
-      kbNext.hidden = true;
+      setButtons(false, false, false);
       kbHint.textContent = "raise your hand to start";
       display.textContent = " ";
       renderPrompt();
     };
 
-    // CLEAR — restart the CURRENT phrase (a clean redo), distinct from newRound() which picks a new one.
-    // The buffer is already emptied by pushChar before onClear fires; we keep `prompt`, drop back to the
-    // `ready` phase so the clock re-arms (gameUpdate restarts it the moment a hand is present), and reset
-    // the timer/result/Next UI. Same prompt, fresh attempt.
-    const restartRound = (): void => {
-      phase = "ready";
-      startMs = 0;
-      kbTimer.textContent = "0.0s";
-      result.textContent = "";
-      kbNext.hidden = true;
-      kbHint.textContent = "raise your hand to start";
-      display.textContent = " ";
-      renderPrompt();
+    // NEW — pick a different phrase, then arm it. RESET / CLEAR — redo the SAME phrase. Both re-count-down.
+    const newRound = (): void => {
+      let p = prompt;
+      while (p === prompt && PHRASES.length > 1) p = PHRASES[Math.floor(Math.random() * PHRASES.length)];
+      prompt = p || PHRASES[0];
+      toWaiting();
+    };
+    const resetRound = (): void => { toWaiting(); };
+
+    // RESUME — continue a paused attempt: shift startMs so the accumulated time carries on, keep the buffer.
+    const resume = (): void => {
+      if (phase !== "paused") return;
+      phase = "running";
+      startMs = performance.now() - pausedElapsed;
+      setButtons(false, false, false);
+      kbHint.textContent = "type the phrase";
     };
 
     const finishRound = (now: number): void => {
@@ -123,22 +135,44 @@ function sizeOverlay(): void { camOverlay.width = camOverlay.clientWidth; camOve
       result.innerHTML = `${wpm} WPM &middot; ${secs.toFixed(1)}S`
         + (bestMs ? ` &middot; BEST ${(bestMs / 1000).toFixed(1)}S` : "")
         + (isBest ? ` &middot; <span class="best">NEW BEST</span>` : "");
-      kbHint.textContent = "next phrase / OK / enter to go again";
-      kbNext.hidden = false;
+      kbHint.textContent = "reset to redo &middot; new phrase to move on";
+      setButtons(false, true, true); // reset + new (nothing to resume)
       sfx.win(); // fanfare (shared bus — silent if muted/locked)
     };
 
-    // Per-frame: start the clock on first hand sighting, tick it while running, finish on exact match.
+    // Per-frame state machine. `present` uses a grace window so a one-frame detection dropout doesn't
+    // pause. Typing is locked (kb.locked) outside `running`, so paused/countdown/done can't corrupt the buffer.
     const gameUpdate = (hand: WorkerHand | null, now: number): void => {
-      if (phase === "ready" && hand) { phase = "running"; startMs = now; kbHint.textContent = "type the phrase"; }
-      if (phase === "running") {
-        kbTimer.textContent = `${((now - startMs) / 1000).toFixed(1)}s`;
-        if (prompt.length > 0 && kb.buf.toUpperCase() === prompt) finishRound(now);
+      if (hand) lastSeenMs = now;
+      const present = now - lastSeenMs < GRACE_MS;
+      switch (phase) {
+        case "waiting":
+          if (present) { phase = "countdown"; countdownStart = now; kbHint.textContent = "get ready…"; }
+          break;
+        case "countdown": {
+          if (!present) { toWaiting(); break; }               // hand left before GO — cancel the countdown
+          const remain = COUNTDOWN_MS - (now - countdownStart);
+          if (remain <= 0) { phase = "running"; startMs = now; kbTimer.textContent = "0.0s"; kbHint.textContent = "type the phrase"; }
+          else kbTimer.textContent = String(Math.ceil(remain / 1000)); // 3 · 2 · 1
+          break;
+        }
+        case "running":
+          if (!present) { phase = "paused"; pausedElapsed = now - startMs; setButtons(true, true, true); kbHint.textContent = "paused — hand left the frame"; break; }
+          kbTimer.textContent = `${((now - startMs) / 1000).toFixed(1)}s`;
+          if (prompt.length > 0 && kb.buf.toUpperCase() === prompt) finishRound(now);
+          break;
+        case "paused":
+        case "done":
+          break; // buttons (resume/reset/new) drive these
       }
+      kb.locked = phase !== "running"; // freeze the keys except during a live round
       if (phase !== "done") renderPrompt();
     };
 
-    kbNext.addEventListener("click", newRound);
+    kbResume.addEventListener("click", resume);
+    kbReset.addEventListener("click", resetRound);
+    kbNew.addEventListener("click", newRound);
+    for (const b of [kbResume, kbReset, kbNew]) kb.addPressTarget(b); // all three are hand-pinchable too
     newRound();
 
     // WebAudio autoplay policy: a webcam-driven pinch is NOT a gesture, so the key click can't play
@@ -150,9 +184,11 @@ function sizeOverlay(): void { camOverlay.width = camOverlay.clientWidth; camOve
 
     addEventListener("keydown", (e) => {
       unlock(); // a physical key IS a gesture — unlock so this and later hand presses can click
+      // State keys work in any phase: Enter = resume/new, Esc = reset the current phrase.
+      if (e.key === "Enter") { if (phase === "paused") resume(); else if (phase === "done") newRound(); return; }
+      if (e.key === "Escape") { if (phase === "running") kb.pushChar("CLEAR"); else resetRound(); return; }
+      if (phase !== "running") return; // no typing outside a live round (matches kb.locked for the hand)
       if (e.key === "Backspace") { kb.pushChar("DEL"); e.preventDefault(); return; }
-      if (e.key === "Escape") { kb.pushChar("CLEAR"); return; } // Esc = CLEAR: wipe + restart the current phrase
-      if (e.key === "Enter") { if (phase === "done") newRound(); return; } // Enter = next phrase when a round's done
       if (e.key === " ") { kb.pushChar(" "); e.preventDefault(); return; } // spacebar → space (don't scroll)
       if (/^[a-z]$/i.test(e.key)) { kb.pushChar(e.key.toUpperCase()); return; }
       // digits + the curated symbols type on any layer (physical input bypasses the on-screen layer)

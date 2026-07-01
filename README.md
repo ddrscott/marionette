@@ -371,18 +371,26 @@ kills SFX *and* music at once.
 The keyboard scene is a timed typing mini-game **and** the tuning bed for the shared hand keyboard
 (`src/handkeyboard.ts`) + hand cursor.
 
-- **Game loop (`src/keyboard.ts`):** a rotating on-theme phrase (letters + spaces only, so no layer
-  switching) is shown with typed-progress highlighting. The **timer starts the instant a hand is
-  detected** and stops when the buffer matches the prompt **exactly** (DEL to fix mistakes). On
-  finish it shows **WPM + time** and a persisted **best** (`localStorage handbattle.kb.bestMs`) with a
-  `NEW BEST` flag, and plays the win fanfare. Start the next phrase via the **next phrase** button,
-  the on-screen **OK**, or **Enter**.
+- **Game state machine (`src/keyboard.ts`):** a rotating on-theme phrase (letters + spaces only, so no
+  layer switching) shown with typed-progress highlighting. Five phases:
+  - **waiting** → a hand entering the frame starts a **3·2·1 countdown**;
+  - **countdown** → the clock hasn't started; a hand *leaving* cancels back to waiting;
+  - **running** → typing; timer accumulates; an **exact** match (DEL to fix) → done; a hand **leaving
+    the frame** (past a `GRACE_MS = 500` debounce that rides out detection flicker) → paused;
+  - **paused** → timer frozen; buttons **resume · reset · new** (resume continues the elapsed time;
+    reset redoes the same phrase; new picks a different one);
+  - **done** → **WPM + time** + persisted **best** (`localStorage handbattle.kb.bestMs`, `NEW BEST`
+    flag) + win fanfare; buttons **reset · new**.
+
+  Typing is **locked** (`kb.locked`) outside `running`, so the countdown/paused/done phases can't
+  corrupt the buffer — but the state buttons stay live. All buttons are **hand-pressable** (registered
+  via `HandKeyboard.addPressTarget`, which lets the pinch reach DOM buttons outside the key grid) as
+  well as mouse/tap; **Enter** resumes/advances and **Esc** resets.
 - **CLEAR key** (bottom row of both layers, beside SPACE + OK) wipes the whole entry in one press —
-  pressable by air-pinch, mouse click, or tap (it routes through the single `pushChar` path via the
-  `onClear` hook, so all three inputs share it), or the physical **Esc** key. On `/keyboard` it does a
-  clean **redo of the current phrase** (same prompt, timer reset to `0.0s` and re-armed the moment a
-  hand is present, Next/result cleared) — distinct from **next phrase**, which picks a new one. On
-  `/game` initials entry (no `onClear`) it just empties the buffer.
+  pressable by air-pinch, mouse click, or tap (routes through the single `pushChar` path via the
+  `onClear` hook), or the physical **Esc** key. On `/keyboard` it does a clean **redo of the current
+  phrase** (same prompt, re-counts down) — distinct from **new phrase**. On `/game` initials entry (no
+  `onClear`) it just empties the buffer.
 - **Pinch detection is x/y-only** (see `gesture.ts`): MediaPipe's inferred `z` depth is unreliable and
   biased by where the hand sits in frame, so the finger→thumb pinch uses the in-plane (x,y) distance
   normalized by hand scale. The `debug` overlay (toggle top-left) mirrors the exact ratios/gate.

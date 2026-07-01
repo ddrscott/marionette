@@ -56,6 +56,9 @@ export class HandKeyboard {
   private prevDel = false;     // pinky-pinch (=DELETE) edge state, debounced separately from the press
   private lastDelT = -1e9;
   private layer = 0;           // 0 = letters, 1 = numbers/symbols (mobile-style ?123/ABC toggle)
+  private pressTargets: HTMLElement[] = []; // extra DOM buttons the hand cursor can also hover + pinch-click
+  locked = false;              // when true, KEYS don't type (hand/mouse/pinky-delete) — but registered
+                               // buttons stay pressable. Lets a host freeze typing between rounds.
 
   // `field` is the region the cursor maps onto (the visible stage/screen: #kbstage on /keyboard,
   // #stage on /game). `grid` hosts the keys; `cursor` is the dot (positioned in screen space).
@@ -85,6 +88,7 @@ export class HandKeyboard {
     const cell = this.cells.find((c) => c.el === cellEl);
     if (!cell) return;
     e.preventDefault();
+    if (this.locked) return; // keys frozen between rounds (buttons handle their own DOM clicks)
     this.flashPressed(cellEl);
     this.press(LAYOUTS[this.layer][cell.r][cell.c]);
   }
@@ -138,6 +142,11 @@ export class HandKeyboard {
     this.hideCursor(); this.highlight(-1, -1);
   }
   hideCursor(): void { this.cursor.style.opacity = "0"; this.cursor.classList.remove("closed"); }
+
+  // Register an external button (outside the key grid) that the hand cursor can hover + pinch-click, so
+  // screen buttons like the game's "next phrase" are reachable HANDS-FREE (mouse/touch already work via
+  // the DOM). A hidden button (zero rect) is naturally skipped, so it's only live when shown.
+  addPressTarget(el: HTMLElement): void { this.pressTargets.push(el); }
   private highlight(r: number, c: number): void {
     this.rows.forEach((row, ri) => row.forEach((cell, ci) => cell.classList.toggle("on", ri === r && ci === c)));
   }
@@ -173,12 +182,23 @@ export class HandKeyboard {
       const b = cell.el.getBoundingClientRect();
       if (px >= b.left && px <= b.right && py >= b.top && py <= b.bottom) { hit = cell; break; }
     }
+    // Also let the cursor reach registered EXTERNAL buttons (e.g. the game's "next phrase") so the whole
+    // flow is hands-free — checked only when no key is under the cursor. Hidden buttons have a zero rect.
+    let hitBtn: HTMLElement | null = null;
+    if (!hit) {
+      for (const el of this.pressTargets) {
+        const b = el.getBoundingClientRect();
+        if (b.width > 0 && px >= b.left && px <= b.right && py >= b.top && py <= b.bottom) { hitBtn = el; break; }
+      }
+    }
+    for (const el of this.pressTargets) el.classList.toggle("hand-hover", el === hitBtn);
     this.highlight(hit ? hit.r : -1, hit ? hit.c : -1);
-    if (cs.clicked && hit) this.press(LAYOUTS[this.layer][hit.r][hit.c]); // pinch/fist over a key = press
+    if (cs.clicked && hit && !this.locked) this.press(LAYOUTS[this.layer][hit.r][hit.c]); // pinch over a key = press (unless frozen)
+    else if (cs.clicked && hitBtn) { sfx.key(); this.flashPressed(hitBtn); hitBtn.click(); } // pinch over a button = click it (always)
 
     // Pinky-to-thumb pinch = DELETE — a distinct gesture from the index/middle press, position-agnostic.
     // Pinch mode only (needs the 3D world skeleton); its own rising-edge + cooldown + confidence gate.
-    if (this.clickMode === "pinch") {
+    if (this.clickMode === "pinch" && !this.locked) {
       const confident = hand.score === undefined || hand.score >= CLICK_MIN_CONFIDENCE;
       const del = confident && pinchedFinger(hand.world ?? hand.landmarks) === 20;
       if (del && !this.prevDel && now - this.lastDelT > 350) { this.pushChar("DEL"); this.lastDelT = now; }

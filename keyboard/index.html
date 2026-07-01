@@ -18,7 +18,13 @@
       <div class="re-grid" id="kbGrid"><div class="init-cursor" id="kbCursor"></div></div>
       <div class="re-hint" id="kbHint">raise your hand to start &middot; type the phrase &middot; pinch to press, pinky-pinch = delete</div>
       <div class="kb-result" id="kbResult"></div>
-      <button class="kb-next" id="kbNext" type="button" hidden>next phrase</button>
+      <!-- state buttons: shown when paused (resume/reset/new) or done (reset/new). Hand-pressable
+           (registered via HandKeyboard.addPressTarget) as well as mouse/tap. -->
+      <div class="kb-buttons" id="kbButtons">
+        <button class="kb-btn" id="kbResume" type="button" hidden>resume</button>
+        <button class="kb-btn" id="kbReset" type="button" hidden>reset</button>
+        <button class="kb-btn" id="kbNew" type="button" hidden>new phrase</button>
+      </div>
     </div>
 
     <div id="camBox">

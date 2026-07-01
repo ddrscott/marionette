@@ -263,9 +263,12 @@ body.chars #camBox { right: auto; left: 50%; bottom: 10px; transform: translateX
 .kb-prompt .p-rest { color: var(--dim); }                                      /* not typed yet */
 .kb-typed { font: 400 clamp(15px, 1.9cqmin, 26px)/1 var(--ui); letter-spacing: .1em; color: rgba(255,255,255,.55); margin-top: 10px; min-height: 1em; white-space: pre-wrap; }
 .kb-timer { font: 700 clamp(26px, 4cqmin, 52px)/1 var(--display); letter-spacing: .04em; color: #fff; margin-top: 8px; }
-.kb-next { margin-top: 14px; font: 700 clamp(12px, 1.6cqmin, 18px)/1 var(--ui); letter-spacing: .12em; text-transform: uppercase;
+.kb-buttons { margin-top: 14px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; min-height: 44px; }
+.kb-btn { font: 700 clamp(12px, 1.6cqmin, 18px)/1 var(--ui); letter-spacing: .12em; text-transform: uppercase;
   color: var(--accent); background: transparent; border: 1px solid var(--accent); border-radius: 6px; padding: 10px 20px; cursor: pointer; }
-.kb-next:hover { background: rgba(79,176,170,.14); box-shadow: 0 0 16px rgba(79,176,170,.35); }
+.kb-btn:hover, .kb-btn.hand-hover { background: rgba(79,176,170,.14); box-shadow: 0 0 16px rgba(79,176,170,.35); }
+.kb-btn.hand-hover { border-color: var(--accent); color: #fff; } /* hand cursor is over it — pinch to click */
+.kb-btn[hidden] { display: none; }
 
 /* ---- /keyboard DIAGNOSTIC pinch/confidence overlay (src/keyboard.ts updateDebug) — read-only HUD.
    Self-contained: this rule + the #dbg block in keyboard/index.html + updateDebug are the whole feature. */
