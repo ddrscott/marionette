@@ -4,7 +4,7 @@
 
 - [x] Play a click sound (public/assets/kb-click.wav) on every accepted keyboard key — both hand presses and physical typing, triggered in HandKeyboard.pushChar; add a sample player to sound.ts (shared bus/mute), unlock audio on /keyboard — see [keyboard-click-sound.md](keyboard-click-sound.md)
 
-- [ ] Virtual keyboard responds to mouse clicks + screen taps — pointerdown on each key routed through a shared press path (toggle/SPACE/DEL/OK), pressed-state feedback, coexists with hand + physical input — see [keyboard-mouse-touch.md](keyboard-mouse-touch.md)
+- [-] Virtual keyboard responds to mouse clicks + screen taps — pointerdown on each key routed through a shared press path (toggle/SPACE/DEL/OK), pressed-state feedback, coexists with hand + physical input — see [keyboard-mouse-touch.md](keyboard-mouse-touch.md)
 
 - [x] Smooth the UI cursor with the existing One-Euro filter (src/oneEuro.ts) — HandCursor returns the raw palm centroid (incl. jittery landmark 9) with no smoothing; apply OneEuro to x/y, reset on hand loss, don't add click latency — see [cursor-one-euro.md](cursor-one-euro.md)
 
