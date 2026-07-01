@@ -147,6 +147,6 @@ function setupAudio(stage: Stage, match: Match): () => void {
     stage.start();
   } catch (e) {
     $("boot").innerHTML =
-      `<pre style="color:#ff4d4d;padding:24px;white-space:pre-wrap">Init failed:\n${e}\n\nServe over http://localhost (not file://) and use Chrome (GPU delegate).</pre>`;
+      `<pre style="color:var(--danger);padding:24px;white-space:pre-wrap">Init failed:\n${e}\n\nServe over http://localhost (not file://) and use Chrome (GPU delegate).</pre>`;
   }
 })();

@@ -69,7 +69,8 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
   part (`FINGERS`): `1 thumb→lArm`, `2 index→lLeg`, `3 middle→torso(head)`, `4 ring→rLeg`,
   `5 pinky→rArm`. The torso hangs from the head (middle-finger) string; arms and legs hang off the
   torso (spherical joints) **and** are pulled by their own finger strings — so each limb forms a
-  closed loop the foldable chains accommodate. Rendered as smooth curves colour-coded per finger.
+  closed loop the foldable chains accommodate. Rendered as smooth curves in the puppet's **team
+  colour** (rust = left / P1, teal = right / P2); each control disc is numbered **1–5** for finger identity.
   - **Chains, not ropes:** rigid spherical-joint links make each string inextensible (no
     rubberband), but the hinges let it **fold** — it goes slack by draping and never snap-bounces.
   - **Length is captured at attach, not fixed:** a chain is built taut (`STRING_SLACK = 1.0`) to the
@@ -104,8 +105,8 @@ We use the real marionette vocabulary ([Wikipedia](https://en.wikipedia.org/wiki
   re-applied on boot; a saved device that's gone falls back to the default gracefully. Hot-plug
   (`devicechange`) refreshes the dropdown and re-acquires only if the active device vanished.
 - **Hand overlay:** all 21 landmarks + `HAND_CONNECTIONS` over the camera preview, with the **five
-  driving fingertips ringed in their finger colours and numbered 1–5**, matching the on-stage
-  control points — so the finger→part mapping reads at a glance.
+  driving fingertips ringed in that player's team colour (rust / teal) and numbered 1–5**, matching
+  the on-stage control points — so the finger→part mapping reads by number and the two players by hue.
 - **Instrumentation:** fps, hand-LOST indicator, a **swing-range slider** (`0–1` =
   fraction of full-screen reach, default `1.0`), a **play-margin slider** (`0–0.25`, default `0.10` =
   central 80% of the camera fills the canvas; the margin band overshoots offscreen — composes with
@@ -140,7 +141,7 @@ one raised hand brings one puppet alive while the other keeps waiting:
 
 - **WAITING / STEADYING** — a grey hand **outline** (`public/hand-left.svg`, tinted `#808080`,
   mirrored for the right side) is drawn **above** the puppet, top third, ~30% of screen height. Raise
-  a hand and your **live fingertip points** appear (coloured + numbered) so you can line them up with
+  a hand and your **live fingertip points** appear (team-coloured + numbered) so you can line them up with
   the outline. Hold still — a progress bar fills over **`HOLD_MS` (0.7 s)**; drift a fingertip more
   than **`STEADY_MARGIN`** and the hold restarts.
 - **ATTACHING** — the held pose is **captured** and the five strings snap on **one at a time**
@@ -267,7 +268,7 @@ never waits on inference:
 | `src/handsProtocol.ts` | **Dependency-free** main↔worker message contract: the typed `WorkerInbound`/`WorkerOutbound` unions, the `Landmark`/`WorkerHand` types, and a hardcoded `HAND_CONNECTIONS` (so the main bundle never pulls in `@mediapipe`). |
 | `public/vendor/mediapipe-tasks-vision-0.10.35.js` | Vendored copy of `@mediapipe/tasks-vision`'s `vision_bundle.cjs`, served **same-origin** as `text/javascript` so the worker can `importScripts` it (the CDN serves `.cjs` as `application/node`, which the browser refuses). Re-copy + rename on version bumps. |
 | `vite.config.ts` | Sets `worker.format = "iife"` so the **built** worker chunk is a classic script (matches the dev `{ type: "classic" }` spawn). |
-| `src/draw.ts` | 2D-canvas renderer (`clear()` + per-puppet `drawPuppet()`, adaptive scale, finger-coloured strings + control points) + the attach-ritual `drawPrompt()` (the `#808080`-tinted hand outline above each puppet) and `drawFingerPoints()` (live calibration points) + both-hands landmark overlay (`drawHands`) + physics-debug overlay. |
+| `src/draw.ts` | 2D-canvas renderer (`clear()` + per-puppet `drawPuppet()`, adaptive scale, team-coloured strings + control points, numbered 1–5) + the attach-ritual `drawPrompt()` (the `#808080`-tinted hand outline above each puppet) and `drawFingerPoints()` (live calibration points) + both-hands landmark overlay (`drawHands`) + physics-debug overlay. |
 | `public/hand-left.svg` | The attach-ritual prompt art (a left hand). Re-tinted to `#808080` on an offscreen canvas at load and mirrored for the right side. |
 | `src/oneEuro.ts` | One Euro filter, ported verbatim from the validated dot test. |
 | `src/sound.ts` | **Game-only** procedural WebAudio SFX. One shared `AudioContext` + master `GainNode` bus; `blip`/`noise`/`throttled` primitives + a named `sfx` map (slice, clash, attach, ko, round, fight, time, win, beep). `unlock()` (gesture-gated) and `setMuted()` drive the whole graph. No assets, no deps. |

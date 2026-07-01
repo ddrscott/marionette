@@ -11,5 +11,5 @@
 - [x] Play-area margin (inset camera→play, overshoot offscreen; sidebar slider, default 10%, all sides) — see [play-area-margin.md](play-area-margin.md)
 - [x] Game audio — procedural WebAudio SFX (slice/clash/etc.) + adaptive music (port false-alarms-web) — see [game-audio.md](game-audio.md)
 - [x] Fix attach "seizure" — puppet spasms for seconds after strings attach before settling — see [attach-seizure.md](attach-seizure.md)
-- [-] Recolor to a duotone (teal + rust) theme — kill the rainbow; per-player team colors — see [color-theme.md](color-theme.md)
+- [x] Recolor to a duotone (teal + rust) theme — kill the rainbow; per-player team colors — see [color-theme.md](color-theme.md)
 - [x] Off-thread hand detection — CLASSIC web worker, async/best-effort (profiled: detection = 24.6ms) — see [hands-web-worker.md](hands-web-worker.md)

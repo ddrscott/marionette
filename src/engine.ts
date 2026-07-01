@@ -15,7 +15,7 @@ import {
 } from "./puppet.ts";
 import { stageX, stageY } from "./control.ts";
 import { initHands, type Hands, type Landmark, type QualityTier } from "./hands.ts";
-import { Renderer, drawHands } from "./draw.ts";
+import { Renderer, drawHands, teamColor } from "./draw.ts";
 
 // ---- default gravity (raised to 20 for snappier, weightier motion) ----
 export const DEFAULT_GRAVITY = 20;
@@ -412,11 +412,13 @@ export class Stage {
       if (ph === "waiting" || ph === "steadying") {
         const prog = ph === "steadying" ? Math.min(1, (now - this.slotStates[s].steadyT0) / HOLD_MS) : 0;
         r.drawPrompt(this.puppets[s].xOffset, s, prog, now);
-        if (ph === "steadying" && this.handStates[s].present) r.drawFingerPoints(this.handStates[s].pos);
+        if (ph === "steadying" && this.handStates[s].present) r.drawFingerPoints(this.handStates[s].pos, teamColor(this.puppets[s].xOffset));
       }
     }
     if (this.debug) r.drawDebug(this.world, this.puppets.flatMap((p) => p.strings));
-    drawHands(this.overlayCtx, this.camOverlay.width, this.camOverlay.height, [this.handStates[0].landmarks, this.handStates[1].landmarks]);
+    drawHands(this.overlayCtx, this.camOverlay.width, this.camOverlay.height,
+      [this.handStates[0].landmarks, this.handStates[1].landmarks],
+      [teamColor(this.puppets[0].xOffset), teamColor(this.puppets[1].xOffset)]);
 
     this.onFrame?.(now, dt);
 

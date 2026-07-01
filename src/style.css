@@ -1,12 +1,16 @@
 @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Russo+One&display=swap');
 :root {
+  /* Duotone theme: muted teal + burnt rust on charcoal/bone neutrals. ONLY these two hues + grays. */
+  --rust: #c46a45;   /* warm — Player 1 (left) */
+  --teal: #4fb0aa;   /* cool — Player 2 (right) + the single UI accent */
+  --danger: #e2512a; /* intensified rust — low-time / warning states (stays in the warm family) */
   --bg: #0d0d0f;
   --fg: #e8e8e8;
   --dim: #7a7a82;
-  --accent: #39d98a;
+  --accent: var(--teal);
   --line: #26262c;
-  --p1: #ff3d6e;  /* player 1 (left) — hot */
-  --p2: #38d6ff;  /* player 2 (right) — cool */
+  --p1: var(--rust);  /* player 1 (left) — warm */
+  --p2: var(--teal);  /* player 2 (right) — cool */
   --ui: 'Rajdhani', ui-monospace, SFMono-Regular, Menlo, sans-serif;       /* HUD / body */
   --display: 'Russo One', 'Rajdhani', system-ui, sans-serif;              /* big impact text */
 }
@@ -43,7 +47,7 @@ body {
 aside { border-left: 1px solid var(--line); padding: 18px; overflow: auto; }
 h1 { font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); margin: 0 0 14px; }
 .stat { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--line); }
-#drop { color: #ff4d4d; font-weight: 700; visibility: hidden; }
+#drop { color: var(--danger); font-weight: 700; visibility: hidden; }
 .row { margin: 16px 0; }
 label { display: block; color: var(--dim); margin-bottom: 4px; font-size: 12px; }
 .dim { color: var(--dim); }
@@ -66,7 +70,7 @@ select {
 
 /* ---- landing page ---- */
 .home { max-width: 560px; margin: 0 auto; padding: 14vh 24px 0; }
-.home h1 { font: 400 34px/1 var(--display); letter-spacing: .03em; text-transform: uppercase; color: var(--fg); margin: 0 0 10px; text-shadow: 0 0 26px rgba(57,217,138,.3); }
+.home h1 { font: 400 34px/1 var(--display); letter-spacing: .03em; text-transform: uppercase; color: var(--fg); margin: 0 0 10px; text-shadow: 0 0 26px rgba(79,176,170,.32); }
 .home p { color: var(--dim); margin: 0 0 28px; }
 .home-links { display: grid; gap: 12px; }
 .home-links a {
@@ -107,8 +111,8 @@ body.game #stage { position: fixed; inset: 0; background: radial-gradient(ellips
 .pbar .fill::after { /* moving sheen on the top half */
   content: ""; position: absolute; inset: 0 0 50% 0; background: linear-gradient(rgba(255,255,255,.45), rgba(255,255,255,0));
 }
-.side.left  .pbar .fill { left: 0;  background: linear-gradient(90deg, #ffcf3d, var(--p1)); box-shadow: 0 0 16px var(--p1); }
-.side.right .pbar .fill { right: 0; background: linear-gradient(90deg, var(--p2), #6ea8ff); box-shadow: 0 0 16px var(--p2); }
+.side.left  .pbar .fill { left: 0;  background: linear-gradient(90deg, #e0895a, var(--p1)); box-shadow: 0 0 16px var(--p1); }
+.side.right .pbar .fill { right: 0; background: linear-gradient(90deg, var(--p2), #7ad0c8); box-shadow: 0 0 16px var(--p2); }
 
 .pips { display: flex; gap: 6px; margin: 7px 6px 0; }
 .side.right .pips { justify-content: flex-end; }
@@ -118,14 +122,14 @@ body.game #stage { position: fixed; inset: 0; background: radial-gradient(ellips
 
 .hud-top .center { text-align: center; padding-top: 2px; }
 .timer { font: 400 52px/1 var(--display); color: #fff; text-shadow: 0 2px 4px #000, 0 0 22px rgba(255,255,255,.25); }
-.timer.low { color: #ff4655; text-shadow: 0 0 24px rgba(255,70,85,.7); animation: timerPulse .6s ease-in-out infinite; }
+.timer.low { color: var(--danger); text-shadow: 0 0 24px rgba(226,81,42,.7); animation: timerPulse .6s ease-in-out infinite; }
 @keyframes timerPulse { 50% { transform: scale(1.12); } }
 .rounds { font: 600 10px/1 var(--ui); letter-spacing: .26em; color: var(--dim); margin-top: 6px; }
 
 .announce { position: absolute; top: 57%; left: 0; right: 0; text-align: center; transform: translateY(-50%); }
 #annc {
   font: 400 60px/1 var(--display); letter-spacing: .06em; color: #fff;
-  text-shadow: 0 0 4px #000, 0 4px 0 #000, 0 0 30px rgba(255,210,80,.55);
+  text-shadow: 0 0 4px #000, 0 4px 0 #000, 0 0 30px rgba(79,176,170,.5);
   -webkit-text-stroke: 1.5px #1a1410;
 }
 #annc.pop { animation: slamIn .34s cubic-bezier(.2,1.4,.35,1) both; }
@@ -143,7 +147,7 @@ body.game #camLabel { display: none; }
 .mute-btn { position: absolute; right: 14px; bottom: 10px; width: 34px; height: 34px; display: grid; place-items: center;
   padding: 0; color: var(--dim); background: rgba(20,20,26,.55); border: 1px solid #2a2a32; border-radius: 8px; cursor: pointer; }
 .mute-btn:hover { color: var(--accent); border-color: var(--accent); }
-.mute-btn.off { color: #ff6b6b; }
+.mute-btn.off { color: var(--danger); }
 .mute-btn svg { width: 18px; height: 18px; }
 /* one-time "click for sound" hint, dismissed on unlock */
 #soundHint { position: absolute; right: 14px; bottom: 52px; color: var(--dim); font: 600 11px/1 var(--ui);

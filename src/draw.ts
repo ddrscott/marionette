@@ -2,9 +2,14 @@ import type RAPIER_NS from "@dimforge/rapier3d-compat";
 import { WORLD_VIEW_HEIGHT, FLOOR_TOP, FINGERTIPS, type Puppet, type PuppetString, type Vec2 } from "./puppet.ts";
 import { HAND_CONNECTIONS, type Landmark } from "./hands.ts";
 
-// One distinct colour per finger/string (1 thumb .. 5 pinky), shared by the strings, the control-point
-// markers, and the camera-overlay fingertip dots so the finger→part mapping reads at a glance.
-const FINGER_COLORS = ["#ff6b6b", "#ffd93d", "#6bcb77", "#4d96ff", "#c780ff"];
+// Duotone team colours (must match style.css `--rust` / `--teal`). Colour is carried by the PLAYER,
+// not the finger: the left puppet (`xOffset < 0`) is rust / Player 1, the right is teal / Player 2.
+// Fingers stay distinguishable by the 1..5 number labels on each control disc / overlay ring, not hue.
+export const TEAM_RUST = "#c46a45"; // Player 1 (left)  / warm
+export const TEAM_TEAL = "#4fb0aa"; // Player 2 (right) / cool + UI accent
+const TEAM_DANGER = "#e2512a";      // intensified rust — debug stretch/warning (stays in the warm family)
+// Team colour for a world x-offset (or any world-x): left of centre = rust, right = teal.
+export const teamColor = (worldX: number): string => (worldX < 0 ? TEAM_RUST : TEAM_TEAL);
 
 // The attach-ritual prompt art: a LEFT-hand SVG (public/hand-left.svg). Its outline is black, which
 // disappears on the dark stage, so on load we re-tint every opaque pixel to #808080 on an offscreen
@@ -101,10 +106,11 @@ export class Renderer {
     const { ctx } = this;
 
     // (1) strings — each a smooth curve from its finger control point through the chain to the part.
+    // Coloured by the puppet's TEAM (rust = left / P1, teal = right / P2), shared by all five strings.
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
+    const col = teamColor(rig.xOffset);
     rig.strings.forEach((s) => {
-      const col = FINGER_COLORS[s.slot % FINGER_COLORS.length];
       const top = s.control.translation();
       const controlPt: Vec2 = { x: top.x, y: top.y };
       const segPts: Vec2[] = s.segs.map((seg) => { const c = seg.translation(); return { x: c.x, y: c.y }; });
@@ -155,7 +161,7 @@ export class Renderer {
       if (s.cutJoint !== null) return; // severed string: no live control point
       const t = s.control.translation();
       const px = this.sx(t.x), py = this.sy(t.y);
-      ctx.fillStyle = FINGER_COLORS[s.slot % FINGER_COLORS.length];
+      ctx.fillStyle = col;
       ctx.beginPath();
       ctx.arc(px, py, 8, 0, Math.PI * 2);
       ctx.fill();
@@ -194,7 +200,7 @@ export class Renderer {
     ctx.globalAlpha = 1;
     ctx.fillStyle = "rgba(255,255,255,0.15)";
     ctx.fillRect(bx, by, bw, 5);
-    if (progress > 0) { ctx.fillStyle = "#6bcb77"; ctx.fillRect(bx, by, bw * progress, 5); }
+    if (progress > 0) { ctx.fillStyle = teamColor(worldX); ctx.fillRect(bx, by, bw * progress, 5); }
     ctx.font = "12px ui-monospace, monospace";
     ctx.textAlign = "center";
     ctx.fillStyle = "rgba(232,232,232,0.85)";
@@ -202,16 +208,16 @@ export class Renderer {
     ctx.textAlign = "start";
   }
 
-  // The live fingertip control points during calibration — coloured + numbered by finger slot — so
-  // the user can line them up with the hand outline before the strings attach.
-  drawFingerPoints(pts: Vec2[]): void {
+  // The live fingertip control points during calibration — in the puppet's TEAM colour, numbered 1..5
+  // by finger slot — so the user can line them up with the hand outline before the strings attach.
+  drawFingerPoints(pts: Vec2[], color: string): void {
     const { ctx } = this;
     ctx.font = "bold 11px ui-monospace, monospace";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     pts.forEach((p, i) => {
       const px = this.sx(p.x), py = this.sy(p.y);
-      ctx.fillStyle = FINGER_COLORS[i % FINGER_COLORS.length];
+      ctx.fillStyle = color;
       ctx.beginPath(); ctx.arc(px, py, 8, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = "#0d0d0f";
       ctx.fillText(String(i + 1), px, py + 0.5);
@@ -231,7 +237,7 @@ export class Renderer {
     // read fine, and it's ~1 draw call instead of hundreds.
     const buf = world.debugRender();
     const v = buf.vertices;
-    ctx.strokeStyle = "rgba(120,200,160,0.55)";
+    ctx.strokeStyle = "rgba(120,180,180,0.5)";
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let i = 0; i + 5 < v.length; i += 6) {
@@ -243,7 +249,7 @@ export class Renderer {
     ctx.font = "11px ui-monospace, monospace";
     ctx.textBaseline = "top";
     let ty = 8;
-    ctx.fillStyle = "#39d98a";
+    ctx.fillStyle = TEAM_TEAL;
     ctx.fillText("physics chains — len / nominal  (stretch%)", 8, ty); ty += 15;
     let maxStretch = -Infinity;
     strings.forEach((s) => {
@@ -255,32 +261,34 @@ export class Renderer {
       for (let k = 1; k < nodes.length; k++) len += Math.hypot(nodes[k].x - nodes[k - 1].x, nodes[k].y - nodes[k - 1].y);
       const stretch = ((len - s.nominalLen) / s.nominalLen) * 100;
       maxStretch = Math.max(maxStretch, stretch);
-      ctx.fillStyle = stretch > 0.3 ? "#ff5c5c" : "#9a9aa2";
+      ctx.fillStyle = stretch > 0.3 ? TEAM_DANGER : "#9a9aa2";
       ctx.fillText(`${s.name.padEnd(13)} ${len.toFixed(2)} / ${s.nominalLen.toFixed(2)}  ${stretch >= 0 ? "+" : ""}${stretch.toFixed(2)}%`, 8, ty);
       ty += 13;
     });
-    ctx.fillStyle = maxStretch > 0.3 ? "#ff5c5c" : "#39d98a";
+    ctx.fillStyle = maxStretch > 0.3 ? TEAM_DANGER : TEAM_TEAL;
     ctx.fillText(`max stretch: ${maxStretch >= 0 ? "+" : ""}${maxStretch.toFixed(2)}%`, 8, ty + 2);
     ctx.textBaseline = "alphabetic";
   }
 }
 
 // ---- hand-landmark overlay (drawn already-mirrored to match the flipped preview) ----
-// Draws BOTH players' hands. The 5 driving fingertips are ringed by finger slot (thumb..pinky) in
-// the matching finger colour — independent of binding, so it reads the same for either hand.
+// Draws BOTH players' hands. Each hand maps to a slot (0 = left player, 1 = right player); its 5
+// driving fingertips are ringed in that player's TEAM colour (`colors[i]`) and numbered 1..5, so the
+// finger→string mapping reads by number while the colour tells the two players apart.
 export function drawHands(
   ctx: CanvasRenderingContext2D,
   w: number,
   h: number,
   hands: (Landmark[] | null)[],
+  colors: string[],
 ): void {
   ctx.clearRect(0, 0, w, h);
-  for (const landmarks of hands) {
-    if (landmarks) drawOneHand(ctx, w, h, landmarks);
-  }
+  hands.forEach((landmarks, i) => {
+    if (landmarks) drawOneHand(ctx, w, h, landmarks, colors[i] ?? TEAM_TEAL);
+  });
 }
 
-function drawOneHand(ctx: CanvasRenderingContext2D, w: number, h: number, landmarks: Landmark[]): void {
+function drawOneHand(ctx: CanvasRenderingContext2D, w: number, h: number, landmarks: Landmark[], color: string): void {
   const X = (lm: Landmark) => (1 - lm.x) * w; // mirror X to match the selfie preview
   const Y = (lm: Landmark) => lm.y * h;
 
@@ -303,14 +311,14 @@ function drawOneHand(ctx: CanvasRenderingContext2D, w: number, h: number, landma
     ctx.fill();
   }
 
-  // the 5 driving fingertips — ringed in their finger colour with the finger number.
+  // the 5 driving fingertips — ringed in this player's TEAM colour with the finger number 1..5.
   ctx.font = "bold 10px ui-monospace, monospace";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   FINGERTIPS.forEach((landmark, i) => {
     const lm = landmarks[landmark];
     const cx = X(lm), cy = Y(lm);
-    ctx.fillStyle = FINGER_COLORS[i % FINGER_COLORS.length];
+    ctx.fillStyle = color;
     ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = "#0d0d0f";
     ctx.fillText(String(i + 1), cx, cy + 0.5);

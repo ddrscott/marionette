@@ -251,13 +251,17 @@ export function addPuppet(
   const torsoHalf = 0.5;
   // dropped 10% of the view height below the string-length rest point so the puppet/prompt sit lower
   const torsoCY = CONTROL_BASE_Y - CENTER_STRING_LEN - torsoHalf - WORLD_VIEW_HEIGHT * 0.10; // 3.1
-  const torso = limb(X + 0, torsoCY, torsoHalf, 0.25, 1.4, "#e8e8e8");
-  const lArm = limb(X - 0.3, torsoCY - 0.1, 0.4, 0.12, 1.0, "#39d98a");
-  const rArm = limb(X + 0.3, torsoCY - 0.1, 0.4, 0.12, 1.0, "#39d98a");
+  // Duotone: the puppet body stays NEUTRAL (bone torso + muted-gray limbs) so the STRINGS carry the
+  // team colour (rust = left / P1, teal = right / P2, applied in draw.ts). Keeps a clean duotone.
+  const BONE = "#d8d4cc";   // torso / head
+  const LIMB = "#9a968e";   // arms + legs, muted warm gray
+  const torso = limb(X + 0, torsoCY, torsoHalf, 0.25, 1.4, BONE);
+  const lArm = limb(X - 0.3, torsoCY - 0.1, 0.4, 0.12, 1.0, LIMB);
+  const rArm = limb(X + 0.3, torsoCY - 0.1, 0.4, 0.12, 1.0, LIMB);
   spherical(RAPIER, world, torso, { x: -0.3, y: 0.3 }, lArm, { x: 0, y: 0.4 });
   spherical(RAPIER, world, torso, { x:  0.3, y: 0.3 }, rArm, { x: 0, y: 0.4 });
-  const lLeg = limb(X - 0.15, torsoCY - 0.95, 0.45, 0.14, 1.1, "#5b8cff");
-  const rLeg = limb(X + 0.15, torsoCY - 0.95, 0.45, 0.14, 1.1, "#5b8cff");
+  const lLeg = limb(X - 0.15, torsoCY - 0.95, 0.45, 0.14, 1.1, LIMB);
+  const rLeg = limb(X + 0.15, torsoCY - 0.95, 0.45, 0.14, 1.1, LIMB);
   spherical(RAPIER, world, torso, { x: -0.15, y: -0.5 }, lLeg, { x: 0, y: 0.45 });
   spherical(RAPIER, world, torso, { x:  0.15, y: -0.5 }, rLeg, { x: 0, y: 0.45 });
 
