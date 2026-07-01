@@ -347,6 +347,26 @@ export function detachString(world: RAPIER_NS.World, puppet: Puppet, slot: numbe
   return s.target;
 }
 
+// Zero linear + angular velocity on every chain SEGMENT. The heavy chains hang between the pinned
+// control (top) and pinned part (bottom) during the attach ritual and keep swinging under gravity;
+// left alone they dump that carried energy into the puppet the instant it's freed (the "seizure").
+// Called every frame during attach and once at release so the chains hand over at rest.
+export function stillStrings(puppet: Puppet): void {
+  for (const s of puppet.strings) for (const seg of s.segs) {
+    seg.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    seg.setAngvel({ x: 0, y: 0, z: 0 }, true);
+  }
+}
+
+// Zero linear + angular velocity on the PUPPET PARTS without moving them (reposePuppet teleports;
+// this doesn't). Used at release to strip any residual part velocity before physics takes over.
+export function stillParts(puppet: Puppet): void {
+  for (const p of puppet.parts) {
+    p.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    p.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+  }
+}
+
 // Swing damping on the PUPPET PARTS (the "drag" / float knob). Segments are handled separately by
 // setStringFriction so the string settling is decoupled from the puppet's fall.
 export function setDamping(puppet: Puppet, linear: number, angular: number): void {

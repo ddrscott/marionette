@@ -8,7 +8,7 @@ import RAPIER from "@dimforge/rapier3d-compat";
 import { OneEuro } from "./oneEuro.ts";
 import {
   buildWorld, addPuppet, setDamping, setPuppetWeight, setStringFriction,
-  reposePuppet, attachStringForSlot, detachAllStrings,
+  reposePuppet, attachStringForSlot, detachAllStrings, stillStrings, stillParts,
   FINGERTIPS, bindingForHandedness, PUPPET_X_OFFSET, RIGHT_HAND_BINDING, LEFT_HAND_BINDING,
   DEFAULT_LINEAR_DAMPING, DEFAULT_ANGULAR_DAMPING, DEFAULT_PUPPET_WEIGHT, DEFAULT_STRING_FRICTION,
   WORLD_VIEW_HEIGHT, FLOOR_TOP, type Puppet, type FingerBind, type TargetName,
@@ -33,6 +33,17 @@ const ATTACH_STRING_MS = 200; // each string attaches over 0.2s
 const ATTACH_MARGIN = 0.8;    // move a fingertip more than this DURING attach -> the attach fails
 const GRACE_MS = 500;         // hand absent this long -> detach + back to waiting (rides out brief gaps)
 const ATTACH_ORDER = [2, 0, 4, 1, 3]; // slot order strings snap on: torso(head) first, then hands, feet
+
+// ---- post-attach "settle ramp" ----
+// When the puppet is freed at the attaching->running handoff, the heavy chains and freshly-tensioned
+// parts can carry residual energy. To stop the "seizure", we hand over at rest (velocities zeroed) and
+// then ride out any remainder under MUCH higher damping/friction that eases back to the slider values
+// over this window — a brief graceful settle, no change to the attach animation itself.
+const SETTLE_MS = 700;               // how long the elevated damping eases back to normal
+const SETTLE_LINEAR_DAMPING = 5;     // part linear damping at t=0 (vs ~0.4 normal) -> eases to `drag`
+const SETTLE_ANGULAR_DAMPING = 8;    // part angular damping at t=0 (vs 1.0 normal)
+const SETTLE_FRICTION = 40;          // segment friction at t=0 (vs 8 normal) -> eases to `friction`
+const easeOut = (t: number): number => 1 - (1 - t) * (1 - t); // t in [0,1], eased for a smooth relax
 
 // Critically-damped smoothing toward a target (Unity's Mathf.SmoothDamp). Velocity-continuous, so a
 // jumping target eases over ~smoothTime without an acceleration step (no kinematic-joint whip).
@@ -90,6 +101,7 @@ export interface SlotState {
   attachT0: number;
   attached: number;
   lastPresentT: number;
+  settleT0: number; // when the post-attach settle ramp started; -1 = not settling
 }
 const makeSlotState = (): SlotState => ({
   phase: "waiting",
@@ -101,6 +113,7 @@ const makeSlotState = (): SlotState => ({
   attachT0: 0,
   attached: 0,
   lastPresentT: -1e9,
+  settleT0: -1,
 });
 
 export interface StageOpts {
@@ -302,8 +315,18 @@ export class Stage {
             st.attached++;
           }
         }
+        // Calm the heavy chains EVERY attach frame so they don't build swing energy while pinned at
+        // both ends. Without this they hang mid-swing and, on release, dump that energy into the freed
+        // parts -> the seizure.
+        stillStrings(p);
         if (st.attached >= ATTACH_ORDER.length && now - st.attachT0 >= ATTACH_ORDER.length * ATTACH_STRING_MS) {
-          setStringFriction(p, this.friction);
+          // Hand over at REST: zero every part + segment velocity, then start the settle ramp with
+          // elevated damping/friction that eases back to the slider values over SETTLE_MS.
+          stillParts(p);
+          stillStrings(p);
+          setDamping(p, SETTLE_LINEAR_DAMPING, SETTLE_ANGULAR_DAMPING);
+          setStringFriction(p, SETTLE_FRICTION);
+          st.settleT0 = now;
           h.primed = false;
           st.phase = "running";
         }
@@ -311,9 +334,31 @@ export class Stage {
 
       case "running":
         if (absent) { this.resetToWaiting(slot); break; }
+        this.applySettle(p, st, now);
         if (h.present) { this.smoothControls(h, dt); this.drivePuppet(p, h); }
         break;
     }
+  }
+
+  // Ease the elevated settle damping/friction back to the live slider values over SETTLE_MS. A no-op
+  // once the ramp has finished (settleT0 = -1). Runs while the puppet is already being driven, so the
+  // hand stays in control — the ramp only absorbs the post-attach residual.
+  private applySettle(p: Puppet, st: SlotState, now: number): void {
+    if (st.settleT0 < 0) return;
+    const t = (now - st.settleT0) / SETTLE_MS;
+    if (t >= 1) {
+      setDamping(p, this.drag, DEFAULT_ANGULAR_DAMPING);
+      setStringFriction(p, this.friction);
+      st.settleT0 = -1;
+      return;
+    }
+    const k = easeOut(1 - t); // 1 at release -> 0 at window end
+    setDamping(
+      p,
+      this.drag + (SETTLE_LINEAR_DAMPING - this.drag) * k,
+      DEFAULT_ANGULAR_DAMPING + (SETTLE_ANGULAR_DAMPING - DEFAULT_ANGULAR_DAMPING) * k,
+    );
+    setStringFriction(p, this.friction + (SETTLE_FRICTION - this.friction) * k);
   }
 
   private beginAttach(slot: 0 | 1, now: number): void {
@@ -323,6 +368,7 @@ export class Stage {
     st.bind = h.binding;
     st.attachT0 = now;
     st.attached = 0;
+    st.settleT0 = -1;
     // center the torso under the MIDDLE fingertip (the head string's control) so the head hangs
     // straight below point 3 and the other strings fan evenly.
     const headSlot = st.bind.findIndex((f) => f.target === "torso");
@@ -336,8 +382,11 @@ export class Stage {
   resetToWaiting(slot: 0 | 1): void {
     detachAllStrings(this.world, this.puppets[slot]);
     reposePuppet(this.puppets[slot], this.puppets[slot].homeTorso);
+    // A reset mid-settle would otherwise leave the parts stuck at elevated damping; restore the slider.
+    setDamping(this.puppets[slot], this.drag, DEFAULT_ANGULAR_DAMPING);
     this.slotStates[slot].phase = "waiting";
     this.slotStates[slot].attached = 0;
+    this.slotStates[slot].settleT0 = -1;
   }
 
   private loop = (): void => {
