@@ -5,7 +5,11 @@
 // so the hand's central range reaches the FULL visible area (same idea as the game's play-area margin
 // — you don't have to jam your hand into the corner of the camera to hit an edge control).
 import type { Landmark } from "./hands.ts";
-import { isFist } from "./gesture.ts";
+import { isFist, isPinch } from "./gesture.ts";
+
+// Which gesture counts as the "click": a closed fist, or a finger-to-thumb pinch. Both keep the palm
+// centroid (the pointer) stable while triggering, so the cursor doesn't jump at the moment of click.
+export type ClickGesture = "fist" | "pinch";
 
 // Fraction inset per side: the inner (1-2m) of the frame maps LINEARLY onto the full [0,1] screen, so
 // a bigger margin = more gain (less hand travel to reach an edge). Kept gentle (near-linear) because
@@ -27,13 +31,15 @@ export interface CursorState {
 export class HandCursor {
   margin: number;
   private cooldownMs: number;
+  private detect: (lm: Landmark[]) => boolean; // the "click" gesture — fist or pinch
   private prevClosed = false;
   private closeT0 = 0;
   private lastClickT = -1e9;
 
-  constructor(opts: { margin?: number; cooldownMs?: number } = {}) {
+  constructor(opts: { margin?: number; cooldownMs?: number; click?: ClickGesture } = {}) {
     this.margin = opts.margin ?? DEFAULT_CURSOR_MARGIN;
     this.cooldownMs = opts.cooldownMs ?? 350; // min gap between clicks (prevents a double on one close)
+    this.detect = opts.click === "pinch" ? isPinch : isFist;
   }
 
   // Read one hand's landmarks for this frame (null = no hand detected).
@@ -44,7 +50,7 @@ export class HandCursor {
     sx /= PALM.length; sy /= PALM.length;
     const x = remap(1 - sx, this.margin); // mirror x to match the selfie preview
     const y = remap(sy, this.margin);
-    const closed = isFist(lm);
+    const closed = this.detect(lm);
     let clicked = false;
     if (closed && !this.prevClosed) {
       this.closeT0 = now;

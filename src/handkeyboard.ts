@@ -5,7 +5,7 @@
 // physical keyboard drive the SAME buffer. Generic — any screen can mount it; /keyboard is its test
 // bed; /game uses it (maxLen 3) for the record-break initials.
 import type { Landmark } from "./hands.ts";
-import { HandCursor } from "./handCursor.ts";
+import { HandCursor, type ClickGesture } from "./handCursor.ts";
 
 // QWERTY rows ending in the control keys. Laid out full-width; keys are hit-tested by their real
 // on-screen rectangles, so differing key counts per row don't matter.
@@ -18,6 +18,7 @@ const ROWS: string[][] = [
 export interface HandKeyboardOpts {
   maxLen?: number;                    // cap the buffer length (default: unbounded)
   onSubmit?: (text: string) => void;  // fired on OK; the buffer is then cleared
+  click?: ClickGesture;               // "fist" (default) or "pinch" (finger-to-thumb) to press a key
 }
 
 interface Cell { el: HTMLElement; r: number; c: number; }
@@ -28,13 +29,14 @@ export class HandKeyboard {
   private cells: Cell[] = [];
   private maxLen: number;
   private onSubmit?: (text: string) => void;
-  private pointer = new HandCursor(); // palm-centre cursor + fist-to-press (shared with every scene)
+  private pointer: HandCursor; // palm-centre cursor + fist/pinch-to-press (shared with every scene)
 
   // `field` is the region the cursor maps onto (the visible stage/screen: #kbstage on /keyboard,
   // #stage on /game). `grid` hosts the QWERTY keys; `cursor` is the dot (positioned in screen space).
   constructor(private field: HTMLElement, grid: HTMLElement, private cursor: HTMLElement, opts: HandKeyboardOpts = {}) {
     this.maxLen = opts.maxLen ?? Infinity;
     this.onSubmit = opts.onSubmit;
+    this.pointer = new HandCursor({ click: opts.click });
     this.rows = ROWS.map((row, ri) => {
       const rowEl = document.createElement("div");
       rowEl.className = "re-row";
