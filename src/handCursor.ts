@@ -26,7 +26,7 @@ export const DEFAULT_CURSOR_MARGIN = 0.15;
 // Reject a click when MediaPipe's per-hand confidence is below this — shaky/ambiguous frames are where
 // false pinches come from. Shared so every click gesture (cursor click + the keyboard's pinky-delete)
 // uses one bar.
-export const CLICK_MIN_CONFIDENCE = 0.7;
+export const CLICK_MIN_CONFIDENCE = 0.9;
 
 const PALM = [0, 5, 9, 13, 17]; // wrist + index/middle/ring/pinky MCPs — a stable palm centre under a fist
 const remap = (v: number, m: number): number => Math.min(1, Math.max(0, (v - m) / Math.max(1e-3, 1 - 2 * m)));

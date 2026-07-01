@@ -221,7 +221,9 @@ body.game #camLabel { display: none; }
 
 /* ===== /keyboard — isolated finger-gun initials test bench ===== */
 body.kb { overflow: hidden; background: radial-gradient(ellipse at 50% 32%, #17171f 0%, #0a0a0d 72%); height: 100vh; height: 100dvh; }
-body.kb #kbstage { position: fixed; left: 0; right: 0; top: 0; height: 100vh; height: 100dvh; container-type: size; display: grid; place-items: center; }
+/* Keyboard sits LOW (bottom-aligned) so pointing at it uses a relaxed, lower hand position instead of
+   reaching high into the camera frame — the cursor maps hand-height linearly to screen-height. */
+body.kb #kbstage { position: fixed; left: 0; right: 0; top: 0; height: 100vh; height: 100dvh; container-type: size; display: grid; place-items: end center; padding-bottom: 10dvh; }
 
 /* ---- /characters — roster demo: same 16:10 letterbox stage as the game ---- */
 body.chars { overflow: hidden; display: grid; place-items: center; background: var(--bg); height: 100vh; height: 100dvh; }
