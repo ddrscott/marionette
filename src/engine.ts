@@ -11,7 +11,7 @@ import {
   reposePuppet, attachStringForSlot, detachAllStrings, stillStrings, stillParts,
   FINGERTIPS, bindingForHandedness, PUPPET_X_OFFSET, RIGHT_HAND_BINDING, LEFT_HAND_BINDING,
   DEFAULT_LINEAR_DAMPING, DEFAULT_ANGULAR_DAMPING, DEFAULT_PUPPET_WEIGHT, DEFAULT_STRING_FRICTION,
-  WORLD_VIEW_HEIGHT, FLOOR_TOP, type Puppet, type FingerBind, type TargetName,
+  WORLD_VIEW_HEIGHT, FLOOR_TOP, WALL_HALF_W, type Puppet, type FingerBind, type TargetName,
 } from "./puppet.ts";
 import { stageX, stageY } from "./control.ts";
 import { initHands, type Hands, type Landmark, type QualityTier } from "./hands.ts";
@@ -215,7 +215,8 @@ export class Stage {
       const fx = h.ffx[j].filter(stageX(lm, this.playMargin), now);
       const fy = h.ffy[j].filter(stageY(lm, this.playMargin), now);
       let x = fx * this.renderer.worldWidth * this.swingRange;
-      if (this.clampHalf) x = slot === 0 ? Math.min(0, x) : Math.max(0, x); // keep each player on their half
+      // keep each player on their half, and a hair OFF the center wall so a string can't drag a part into it
+      if (this.clampHalf) x = slot === 0 ? Math.min(-WALL_HALF_W, x) : Math.max(WALL_HALF_W, x);
       h.pos[j].x = x;
       h.pos[j].y = Math.max(FLOOR_TOP, VERT_CENTER + fy * VERT_SPAN * this.swingRange);
     }

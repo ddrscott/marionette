@@ -257,6 +257,7 @@ export function addPuppet(
   const parts: Capsule[] = [];
   const limb = (cx: number, cy: number, half: number, rad: number, density: number, color: string) => {
     const body = world.createRigidBody(dynDesc(RAPIER, cx, cy));
+    body.enableCcd(true); // string-driven parts move fast; CCD stops them tunneling through the thin wall
     const collider = world.createCollider(
       RAPIER.ColliderDesc.capsule(half, rad).setDensity(density).setCollisionGroups(PUPPET_GROUP),
       body,
