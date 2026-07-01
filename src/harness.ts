@@ -4,6 +4,7 @@
 import { Stage, DEFAULT_GRAVITY } from "./engine.ts";
 import { CENTER_STRING_LEN, WORLD_VIEW_HEIGHT } from "./puppet.ts";
 import { isQualityTier, DEFAULT_QUALITY, type Hands, type QualityTier } from "./hands.ts";
+import { makeCamDraggable } from "./dragCam.ts";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -89,6 +90,7 @@ function wireCameraPickers(hands: Hands): void {
       $("drop").style.visibility = stage.handCount > 0 ? "hidden" : "visible";
     };
 
+    makeCamDraggable($("camBox"), $("stage")); // drag the self-view anywhere; clamped + persisted
     $("boot").remove();
     stage.start();
   } catch (e) {

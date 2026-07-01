@@ -14,6 +14,7 @@ import { Pilot, type PilotCfg } from "./pilot.ts";
 import { Renderer, drawHands, teamColor, TEAM_TEAL } from "./draw.ts";
 import { HandCursor } from "./handCursor.ts";
 import { initHands, isQualityTier, DEFAULT_QUALITY, type QualityTier } from "./hands.ts";
+import { makeCamDraggable } from "./dragCam.ts";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -108,6 +109,7 @@ const gridCenter = (i: number, W: number): Vec2 => ({ x: (i % 5 - 2) * colGap(W)
       mode = "try";
     };
 
+    makeCamDraggable($("camBox"), $("charstage")); // drag the self-view anywhere; clamped + persisted
     $("boot").remove();
 
     let lastT = performance.now();

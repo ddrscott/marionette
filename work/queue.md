@@ -1,6 +1,8 @@
 # Work Queue
 
-- [-] Make the camera preview draggable (mouse + touch) on /game, /characters, /keyboard — free placement, clamped on-screen (safe-area aware), persisted via localStorage; shared helper, not per-scene — see [draggable-camera.md](draggable-camera.md)
+- [x] Make the camera preview draggable (mouse + touch) on /game, /characters, /keyboard — free placement, clamped on-screen (safe-area aware), persisted via localStorage; shared helper, not per-scene — see [draggable-camera.md](draggable-camera.md)
+
+- [ ] Play a click sound (public/assets/kb-click.wav) on every accepted keyboard key — both hand presses and physical typing, triggered in HandKeyboard.pushChar; add a sample player to sound.ts (shared bus/mute), unlock audio on /keyboard — see [keyboard-click-sound.md](keyboard-click-sound.md)
 
 - [x] Smooth the UI cursor with the existing One-Euro filter (src/oneEuro.ts) — HandCursor returns the raw palm centroid (incl. jittery landmark 9) with no smoothing; apply OneEuro to x/y, reset on hand loss, don't add click latency — see [cursor-one-euro.md](cursor-one-euro.md)
 

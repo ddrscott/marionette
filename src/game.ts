@@ -7,6 +7,7 @@ import { isQualityTier, DEFAULT_QUALITY, type QualityTier } from "./hands.ts";
 import { unlock, audioReady, getMuted, setMuted, sfx } from "./sound.ts";
 import { music } from "./music.ts";
 import { HandKeyboard, SYMBOL_CHARS } from "./handkeyboard.ts";
+import { makeCamDraggable } from "./dragCam.ts";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -202,6 +203,7 @@ function setupAudio(stage: Stage, match: Match): () => void {
       } else if (wasAwaiting) { kb.hideCursor(); wasAwaiting = false; }
     };
 
+    makeCamDraggable($("camBox"), $("stage")); // drag the self-view anywhere; clamped + persisted
     $("boot").remove();
     stage.start();
   } catch (e) {

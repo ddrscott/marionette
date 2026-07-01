@@ -4,6 +4,7 @@
 import { initHands, isQualityTier, DEFAULT_QUALITY, type QualityTier } from "./hands.ts";
 import { drawHands, TEAM_TEAL } from "./draw.ts";
 import { HandKeyboard, SYMBOL_CHARS } from "./handkeyboard.ts";
+import { makeCamDraggable } from "./dragCam.ts";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -40,6 +41,7 @@ function sizeOverlay(): void { camOverlay.width = camOverlay.clientWidth; camOve
     sizeOverlay();
     addEventListener("resize", sizeOverlay);
     new ResizeObserver(sizeOverlay).observe(camOverlay); // fit on mount without a manual resize
+    makeCamDraggable($("camBox"), $("kbstage")); // drag the self-view anywhere; clamped + persisted
     $("boot").remove();
 
     const loop = (): void => {
