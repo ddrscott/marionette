@@ -28,6 +28,7 @@ function renderPips(id: string, wins: number): void {
 }
 
 let lastAnnounce = "";
+let initialsBuf = ""; // arcade initials being typed on a record break
 function renderHud(m: Match): void {
   const timer = $("timer");
   timer.textContent = String(Math.ceil(m.timeLeft));
@@ -45,6 +46,21 @@ function renderHud(m: Match): void {
     if (m.announce) { void annc.offsetWidth; annc.classList.add("pop"); }
   }
   $("annsub").textContent = m.sub;
+
+  // win streak + all-time record
+  $("rec").textContent = m.record.streak > 0 ? `REC · ${m.record.initials} · ${m.record.streak}` : "REC · —";
+  $("streak").textContent = m.streak > 0 && m.streakHolder !== null ? `P${m.streakHolder + 1} STREAK ×${m.streak}` : "";
+
+  // arcade initials entry, shown only on a record break (match.awaitingInitials)
+  const entry = $("recordEntry");
+  if (m.awaitingInitials) {
+    entry.hidden = false;
+    $("reStreak").textContent = `${m.streak}-WIN STREAK`;
+    $("reInitials").textContent = initialsBuf.padEnd(3, "_").split("").join(" ");
+  } else {
+    entry.hidden = true;
+    if (initialsBuf) initialsBuf = "";
+  }
 }
 
 // --- audio (game-only): procedural WebAudio SFX + adaptive music, all off the render-critical path ---
@@ -88,7 +104,7 @@ function setupAudio(stage: Stage, match: Match): () => void {
   // Permanent keyboard handler: any key unlocks; once unlocked, M toggles mute.
   addEventListener("keydown", (e) => {
     if (!audioReady()) { doUnlock(); return; }
-    if (e.key === "m" || e.key === "M") toggleMute();
+    if ((e.key === "m" || e.key === "M") && !match.awaitingInitials) toggleMute(); // 'm' types M during initials entry
   });
   muteBtn?.addEventListener("click", (e) => { e.stopPropagation(); if (!audioReady()) { doUnlock(); return; } toggleMute(); });
 
@@ -136,6 +152,20 @@ function setupAudio(stage: Stage, match: Match): () => void {
     stage.clampHalf = true; // neither player's fingertips may cross the center line
 
     const match = new Match();
+
+    // Arcade initials entry on a record break: type 3 letters (auto-uppercase; auto-saves on the 3rd,
+    // Enter saves early with padding, Backspace edits). Gated on match.awaitingInitials so normal keys
+    // (M-mute etc.) are unaffected the rest of the time.
+    addEventListener("keydown", (e) => {
+      if (!match.awaitingInitials) return;
+      if (e.key === "Backspace") { initialsBuf = initialsBuf.slice(0, -1); e.preventDefault(); return; }
+      if (e.key === "Enter") { match.submitInitials(initialsBuf); initialsBuf = ""; return; }
+      if (/^[a-z]$/i.test(e.key) && initialsBuf.length < 3) {
+        initialsBuf += e.key.toUpperCase();
+        if (initialsBuf.length === 3) { match.submitInitials(initialsBuf); initialsBuf = ""; }
+      }
+    });
+
     const audioTick = setupAudio(stage, match);
     stage.onFrame = (now) => {
       match.update(stage, now);

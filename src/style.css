@@ -152,3 +152,15 @@ body.game #camLabel { display: none; }
 /* one-time "click for sound" hint, dismissed on unlock */
 #soundHint { position: absolute; right: 14px; bottom: 52px; color: var(--dim); font: 600 11px/1 var(--ui);
   letter-spacing: .06em; text-transform: uppercase; opacity: .7; pointer-events: none; }
+
+/* win streak + all-time record (center HUD, under BEST OF 5) */
+.streak { font: 700 12px/1 var(--ui); letter-spacing: .12em; color: var(--accent); margin-top: 6px; min-height: 12px; text-shadow: 0 0 10px rgba(79,176,170,.5); }
+.rec { font: 600 11px/1 var(--ui); letter-spacing: .14em; color: var(--dim); margin-top: 5px; min-height: 11px; }
+
+/* arcade initials entry — shown only on a record break */
+.record-entry { position: absolute; top: 39%; left: 0; right: 0; text-align: center; transform: translateY(-50%); }
+.record-entry[hidden] { display: none; }
+.re-title { font: 400 42px/1 var(--display); letter-spacing: .1em; color: var(--accent); text-shadow: 0 0 4px #000, 0 4px 0 #000, 0 0 30px rgba(79,176,170,.55); -webkit-text-stroke: 1.2px #0d0d0f; }
+.re-streak { font: 700 15px/1 var(--ui); letter-spacing: .2em; color: #fff; margin-top: 10px; }
+.re-initials { font: 400 58px/1 var(--display); letter-spacing: .24em; color: #fff; margin-top: 14px; text-shadow: 0 0 24px rgba(255,255,255,.3); }
+.re-hint { font: 600 13px/1 var(--ui); letter-spacing: .12em; color: var(--dim); margin-top: 14px; text-transform: uppercase; }

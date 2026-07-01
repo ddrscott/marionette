@@ -26,6 +26,18 @@ const RESTART_HOLD_MS = 1500;     // at match end, hands-off this long before a 
 
 const intact = (p: Puppet): number => p.strings.reduce((n, s) => n + (s.cutJoint === null ? 1 : 0), 0);
 
+// All-time longest win streak, persisted with the holder's initials (arcade high score).
+const REC_KEY = "handbattle.streak.record";
+export interface StreakRecord { initials: string; streak: number; }
+function loadRecord(): StreakRecord {
+  try {
+    const raw = localStorage.getItem(REC_KEY);
+    if (raw) { const r = JSON.parse(raw); if (r && typeof r.streak === "number" && typeof r.initials === "string") return r; }
+  } catch { /* ignore bad/absent storage */ }
+  return { initials: "---", streak: 0 };
+}
+function saveRecord(r: StreakRecord): void { try { localStorage.setItem(REC_KEY, JSON.stringify(r)); } catch { /* ignore */ } }
+
 export class Match {
   phase: GamePhase = "prematch";
   round = 1;
@@ -36,6 +48,13 @@ export class Match {
   sub = "";
   roundWinner: 0 | 1 | null = null;
   matchWinner: 0 | 1 | null = null;
+
+  // Winner-stays-on streak: consecutive MATCH wins by the reigning side. A win by the other side
+  // hands the streak (reset to 1) to the new winner. The all-time longest persists with initials.
+  streak = 0;
+  streakHolder: 0 | 1 | null = null;
+  record: StreakRecord = loadRecord();
+  awaitingInitials = false; // set on a record break; the game shows the initials entry until submitInitials()
 
   // Optional slice/clash hooks the game wires to SFX; forwarded to the cut rules. Left unset in the
   // harness (which never constructs a Match) — the audio layer is game-only.
@@ -97,7 +116,9 @@ export class Match {
         // announce was set in endRound; just hold while the loser collapses (no rules running)
         if (now - this.phaseT >= ROUNDEND_MS) {
           if (this.wins[0] >= WINS_NEEDED || this.wins[1] >= WINS_NEEDED) {
-            this.matchWinner = this.wins[0] >= WINS_NEEDED ? 0 : 1;
+            const winner = (this.wins[0] >= WINS_NEEDED ? 0 : 1) as 0 | 1;
+            this.matchWinner = winner;
+            this.scoreMatch(winner); // update the win streak + flag a record break
             this.go("matchEnd", now);
           } else {
             this.round++;
@@ -109,13 +130,35 @@ export class Match {
 
       case "matchEnd":
         this.announce = this.matchWinner === 0 ? "PLAYER 1 WINS" : "PLAYER 2 WINS";
-        this.sub = "drop your hands to play again";
-        if (stage.handCount === 0 && now - this.phaseT > RESTART_HOLD_MS) {
-          this.resetRound(stage);
-          this.go("prematch", now);
+        if (this.awaitingInitials) {
+          // hold here (no restart) until the game calls submitInitials() with the typed letters
+          this.sub = "new record! type 3 initials";
+        } else {
+          this.sub = this.streak > 1 ? `${this.streak}-win streak — drop your hands to play again` : "drop your hands to play again";
+          if (stage.handCount === 0 && now - this.phaseT > RESTART_HOLD_MS) {
+            this.resetRound(stage);
+            this.go("prematch", now); // streak/record persist across the rematch (winner-stays-on)
+          }
         }
         break;
     }
+  }
+
+  // Update the winner-stays-on streak on a match win and flag a record break.
+  private scoreMatch(winner: 0 | 1): void {
+    if (this.streakHolder === winner) this.streak++;
+    else { this.streakHolder = winner; this.streak = 1; }
+    // A record needs a real streak (>= 2) — a lone win isn't a streak, and the default record is 0.
+    if (this.streak >= 2 && this.streak > this.record.streak) this.awaitingInitials = true;
+  }
+
+  // Called by the game when the player types their initials after breaking the record.
+  submitInitials(initials: string): void {
+    if (!this.awaitingInitials) return;
+    const clean = (initials || "AAA").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3).padEnd(3, "A");
+    this.record = { initials: clean, streak: this.streak };
+    saveRecord(this.record);
+    this.awaitingInitials = false;
   }
 
   private endRound(now: number, how: string): void {

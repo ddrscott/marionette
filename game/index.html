@@ -21,6 +21,8 @@
         <div class="center">
           <div class="timer" id="timer">99</div>
           <div class="rounds">BEST OF 5</div>
+          <div class="streak" id="streak"></div>
+          <div class="rec" id="rec"></div>
         </div>
         <div class="side right">
           <div class="pname">PLAYER 2</div>
@@ -35,6 +37,14 @@
     <div id="camBox">
       <video id="cam" autoplay playsinline muted></video>
       <canvas id="camOverlay"></canvas>
+    </div>
+
+    <!-- arcade high-score entry, shown only when a win streak breaks the record -->
+    <div id="recordEntry" class="record-entry" hidden>
+      <div class="re-title">NEW RECORD</div>
+      <div class="re-streak" id="reStreak"></div>
+      <div class="re-initials" id="reInitials">_ _ _</div>
+      <div class="re-hint">type 3 initials</div>
     </div>
 
     <a class="home-link" href="/">&larr; home</a>
