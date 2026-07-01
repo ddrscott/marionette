@@ -96,6 +96,8 @@ body.game #stage {
   height: min(100vh, calc(100vw * 10 / 16));
   container-type: size;
   background: radial-gradient(ellipse at 50% 32%, #17171f 0%, #0a0a0d 72%);
+  /* a subtle frame so the 16:10 play area reads as intentional against the letterbox bars */
+  box-shadow: 0 0 0 1px var(--line), 0 0 60px rgba(0, 0, 0, .7);
 }
 
 #hud { position: absolute; inset: 0; pointer-events: none; }
