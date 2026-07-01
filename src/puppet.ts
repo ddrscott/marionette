@@ -72,6 +72,7 @@ export interface Capsule {
   body: RAPIER_NS.RigidBody; half: number; rad: number; color: string;
   collider: RAPIER_NS.Collider; baseDensity: number; // for the live weight slider (setPuppetWeight)
   neutral: Vec2; // this part's home offset from the torso center — the neutral pose reposePuppet resets to
+  neutralRot: number; // this part's home z-rotation (radians) — a canted arm / horizontal body / coil link
 }
 
 // The humanoid part ids, plus ANY string id so bespoke rigs (see rigs.ts / buildRig) can name their
@@ -228,7 +229,13 @@ function buildChain(
   const f = fromBody.translation();
   const top = { x: f.x, y: f.y };
   const bt = toBody.translation();
-  const bot = { x: bt.x + toAnchor.x, y: bt.y + toAnchor.y };
+  // Rotate the body-LOCAL anchor by the part's current z-rotation so the chain is built toward the
+  // SAME world point the rapier joint pins to (and the renderer's localToWorld draws). Identity for
+  // upright parts (the humanoid /game path), so it only matters for canted/horizontal/coiled rigs.
+  const q = toBody.rotation();
+  const ang = 2 * Math.atan2(q.z, q.w);
+  const ca = Math.cos(ang), sa = Math.sin(ang);
+  const bot = { x: bt.x + toAnchor.x * ca - toAnchor.y * sa, y: bt.y + toAnchor.x * sa + toAnchor.y * ca };
   const restDist = Math.hypot(bot.x - top.x, bot.y - top.y) || 1e-3;
   const nominalLen = restDist * STRING_SLACK;
   const segHalf = nominalLen / SEG_COUNT / 2;
@@ -276,7 +283,7 @@ export function addPuppet(
       RAPIER.ColliderDesc.capsule(half, rad).setDensity(density).setCollisionGroups(PUPPET_GROUP),
       body,
     );
-    parts.push({ body, half, rad, color, collider, baseDensity: density, neutral: { x: 0, y: 0 } });
+    parts.push({ body, half, rad, color, collider, baseDensity: density, neutral: { x: 0, y: 0 }, neutralRot: 0 });
     return body;
   };
 
@@ -322,7 +329,11 @@ export function addPuppet(
 // internal spherical joints, and a 5-finger binding onto those part ids. buildRig() below turns one
 // into the same `Puppet` the humanoid uses, so the attach ritual / cut / draw all work unchanged.
 // See rigs.ts for the ten characters. parts[0] is the ROOT (what homeTorso positions).
-export interface PartDef { id: string; dx: number; dy: number; half: number; rad: number; density: number; color: string; }
+// `rot` (optional, radians) is the part's NEUTRAL z-rotation: 0 = upright capsule (drawn along local
+// +y), π/2 = horizontal, small values = a canted limb. It's applied at build (initial body rotation)
+// AND re-asserted every frame by reposePuppet, so a horizontal beast / coiled serpent / inverted rig
+// HOLDS its pose at neutral instead of being forced upright. Joint anchors stay body-local (unrotated).
+export interface PartDef { id: string; dx: number; dy: number; half: number; rad: number; density: number; color: string; rot?: number; }
 export interface JointDef { a: string; ax: number; ay: number; b: string; bx: number; by: number; }
 export interface RigDef { name: string; accent: string; parts: PartDef[]; joints: JointDef[]; binding: FingerBind[]; }
 
@@ -332,14 +343,16 @@ export function buildRig(RAPIER: typeof RAPIER_NS, world: RAPIER_NS.World, cente
   const parts: Capsule[] = [];
   const byId: Record<string, RAPIER_NS.RigidBody> = {};
   for (const pd of def.parts) {
-    const body = world.createRigidBody(dynDesc(RAPIER, center.x + pd.dx, center.y + pd.dy));
+    const rot = pd.rot ?? 0;
+    const body = world.createRigidBody(dynDesc(RAPIER, center.x + pd.dx, center.y + pd.dy, rot));
     body.enableCcd(true);
     const collider = world.createCollider(
       RAPIER.ColliderDesc.capsule(pd.half, pd.rad).setDensity(pd.density).setCollisionGroups(PUPPET_GROUP),
       body,
     );
-    // dx/dy are already relative to the root, so they ARE the neutral offset reposePuppet resets to.
-    parts.push({ body, half: pd.half, rad: pd.rad, color: pd.color, collider, baseDensity: pd.density, neutral: { x: pd.dx, y: pd.dy } });
+    // dx/dy are already relative to the root, so they ARE the neutral offset reposePuppet resets to;
+    // rot is the neutral tilt it holds (upright unless the rig cants/lays this part out).
+    parts.push({ body, half: pd.half, rad: pd.rad, color: pd.color, collider, baseDensity: pd.density, neutral: { x: pd.dx, y: pd.dy }, neutralRot: rot });
     byId[pd.id] = body;
   }
   for (const j of def.joints) spherical(RAPIER, world, byId[j.a], { x: j.ax, y: j.ay }, byId[j.b], { x: j.bx, y: j.by });
@@ -375,7 +388,10 @@ export function removePuppet(world: RAPIER_NS.World, p: Puppet): void {
 export function reposePuppet(puppet: Puppet, torsoTarget: Vec2): void {
   for (const p of puppet.parts) {
     p.body.setTranslation({ x: torsoTarget.x + p.neutral.x, y: torsoTarget.y + p.neutral.y, z: 0 }, true);
-    p.body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true); // upright (z-only lock; identity = no tilt)
+    // Restore this part's NEUTRAL tilt (z-only lock). Most parts are upright (neutralRot 0 => identity);
+    // canted limbs / horizontal beasts / coiled serpents hold their designed angle here.
+    const hz = p.neutralRot / 2;
+    p.body.setRotation({ x: 0, y: 0, z: Math.sin(hz), w: Math.cos(hz) }, true);
     p.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     p.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
   }

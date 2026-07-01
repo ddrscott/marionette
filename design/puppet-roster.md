@@ -2,7 +2,17 @@
 
 Design doc. Ten distinct, exaggerated marionette fighters across genres (Tekken-flavored
 + three animals). Each is a **bespoke body** driven by the **same 5 finger-strings** the engine
-already gives us. Concepts only — no code yet. Mark this up and we'll build from it.
+already gives us.
+
+> **SHIPPED REDESIGN (silhouette pass).** The rigs in `src/rigs.ts` were redesigned to kill the
+> "same humanoid biped" sameness — they now vary HARD across **orientation** (upright / horizontal /
+> inverted / coiled / radial), **limb count** (0 legs, 2, 4, 6, one giant arm), **body size** (tiny
+> gremlin vs huge titan), and **limb length**. Strings **decouple from limbs**: a legless orb or a
+> serpent still carries its five cuttable strings by binding multiple finger slots to different
+> anchors along the same body. A part may carry an optional `rot` (z-tilt) so it holds a horizontal /
+> canted / coiled neutral pose (`reposePuppet` re-asserts it each frame). The **shipped silhouettes**
+> are the "Roster at a glance" table below; the per-fighter prose that follows preserves the ORIGINAL
+> concept flavor (genre / archetype / keystone) that inspired each.
 
 ---
 
@@ -188,18 +198,18 @@ that are *thematically the best at cutting strings.* Spindly multi-jointed legs.
 
 ## Roster at a glance
 
-| # | Name | Genre | Archetype | Distinct silhouette | 5th-string twist | Keystone cut |
-|---|---|---|---|---|---|---|
-| 1 | Jackhammer | pro wrestling | Grappler | barrel + wrecking-ball fists | — | arm (dead fist) |
-| 2 | Iron Fist | karate | Zoner | lean, long-limbed | — | (balanced) |
-| 3 | Nightshade | ninja | Technical | one arm + whip scarf | scarf whip | scarf |
-| 4 | Furnace | mech | Tank | boxy, telescoping arms | cuttable elbows | torso |
-| 5 | Inversa | capoeira | Technical | inverted, legs-up | control flipped | leg |
-| 6 | Mountain | sumo | Tank | low wall / belly | — | (won't topple) |
-| 7 | Widow | mystic | Zoner | robe skirt, no legs | cloth hem fan | torso |
-| 8 | Joey | kangaroo | Rushdown | tail tripod + hind legs | tail as 5th limb | tail |
-| 9 | Ursine | bear | Grappler | quadruped, no arms | middle→head | head |
-| 10 | Reaper | mantis | Zoner | tall, scythe blades | bladed cutters | scythe |
+| # | Name | Genre | Archetype | Shipped silhouette | Orientation | Limbs | Keystone (slot 2) |
+|---|---|---|---|---|---|---|---|
+| 1 | Jackhammer | pro wrestling | Grappler | one GIANT wrecking-ball arm, stub other arm, off-centre mass | upright, lopsided | 1 big arm + 1 stub + 2 legs | torso |
+| 2 | Iron Fist | karate | Zoner | tiny torso, extremely long spindly arms + legs | upright | 4 long thin | torso |
+| 3 | Nightshade | ninja | Technical | legless S-coiled serpent, 5 strings along the body | coiled chain | 0 (6-segment body) | mid-body core |
+| 4 | Furnace | mech | Tank | huge titan body dwarfing tiny thick limbs | upright, massive | 4 short thick + head | torso |
+| 5 | Inversa | capoeira | Technical | inverted — heavy legs held UP, thin arms plant DOWN | upside-down | 2 legs up + 2 arms down | hips |
+| 6 | Mountain | sumo | Tank | wide low HORIZONTAL slab on four stubby legs | horizontal | 4 stubby legs + head | belly |
+| 7 | Widow | mystic | Zoner | legless drifting orb, veil-spokes fanned round the rim | floating/radial | 0 legs (5 spokes) | orb |
+| 8 | Joey | kangaroo | Rushdown | tiny fast gremlin, whole rig scaled small | upright, small | 2 stub arms + 2 legs | torso |
+| 9 | Ursine | bear | Grappler | horizontal quadruped, body flat, head out front | horizontal | 4 legs + head | body |
+| 10 | Reaper | mantis | Zoner | many-legged insect — small thorax + SIX spindly legs | radial | 6 spindly legs + head | thorax |
 
 Spread check: 7 genres across humans (wrestling, karate, ninja, mech, capoeira, sumo, mystic) + 3
 animals (kangaroo, bear, mantis). Ten distinct silhouettes, ten distinct mass distributions, and a
