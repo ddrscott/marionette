@@ -57,7 +57,7 @@ const FLOOR_HALF_D = 1;  // z-thickness so the z-locked puppet (z=0) always over
 // ~2 puppet heights above the floor — so the puppets can still meet and fight down low. It shares the
 // floor's collision group, so it blocks both puppet parts and string segments.
 const PUPPET_HEIGHT = 2;                        // approx head-to-foot span (~1.9 world units)
-export const WALL_OPENING = 2 * PUPPET_HEIGHT;  // gap height above the floor (~2 puppet heights)
+export const WALL_OPENING = 3 * PUPPET_HEIGHT;  // gap height above the floor (~3 puppet heights)
 export const WALL_HALF_W = 0.15;                // wall thickness (x half-extent)
 const WALL_TOP = 200;                           // effectively infinite (the view is only 12 tall)
 
