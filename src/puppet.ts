@@ -29,17 +29,16 @@ export const CENTER_STRING_LEN = 6.2; // head string length -> 51.7% of a 12u vi
 // Strings are CHAINS of stiff segment links (spherical joints): inextensible (no rubberband) but
 // free to FOLD at every hinge, so they drape/go-slack and never snap-bounce. `STRING_SLACK` 1.0 =>
 // chain length is exactly the straight-line span, so the string is straight/taut at the rest pose.
-const SEG_COUNT = 10;
-const SEG_RAD = 0.04;
-// Heavy links so the strings read as CHAINS (hang/swing with visible weight), not floaty thread.
-// Sized for the DEFAULT puppet weight (4×): each string's total mass (~0.08) stays well under the
-// lightest limb it pulls — the arm (~0.17 at weight 4) — so the puppet drives the strings, never the
-// reverse (no "tail wags dog" limb whipping). Heavier links also improve the link↔puppet mass ratio,
-// which REDUCES chain stretch, and fall faster under the linear drag (less floaty).
-// CAVEAT: puppet weight is a live slider (1–12). At very low weight the limbs get light enough that a
-// heavy string can approach/exceed limb mass (e.g. at weight 1 the arm is ~0.043 < string ~0.08),
-// where wagging can creep in. The default (4×) is the design point; this is intentional.
-const SEG_DENSITY = 2.0;
+const SEG_COUNT = 20;
+const SEG_RAD = 0.1;
+// Thick, heavy links — the strings read as substantial ROPE, not thread. NOTE: `SEG_RAD = 0.4` is a
+// DELIBERATE thick rope (not the earlier thin 0.04). Mass scales with radius², so at `SEG_DENSITY 2.0`
+// over 20 links a string weighs on the order of ~16 mass units — it FAR outweighs the limbs it pulls
+// (arm ≈ 0.17 at weight 4×). So this rig intentionally runs "string-dominant": the heavy rope drapes
+// with visible weight and sag, tamed via the string-friction slider rather than kept lighter than the
+// limbs. (If the puppet ever feels dragged around by its own strings, that mass ratio is why — drop
+// SEG_RAD back toward 0.04 to make the strings light and taut again.)
+const SEG_DENSITY = 1.2;
 const STRING_SLACK = 1.0;
 
 // Collision filtering (high 16 = membership, low 16 = mask of groups it collides with).
@@ -76,8 +75,10 @@ export interface PuppetString {
   target: TargetName;           // which part — so a hand can drive a control BY TARGET (handedness)
   bodyAnchor: Vec2;             // body-local
   segs: RAPIER_NS.RigidBody[];  // the chain links, control-side -> body-side
+  joints: RAPIER_NS.ImpulseJoint[]; // SEG_COUNT+1 hinges; joints[k] is above seg k (see buildChain)
   nominalLen: number;           // total chain length (its inextensible limit)
   slot: number;                 // finger slot 0..4 (thumb..pinky) — stable colour/number, attach order
+  cutJoint: number | null;      // null = intact; else the hinge index severed (chain split into 2 dangling halves)
 }
 
 // Finger → part bindings. Fingers 1..5 = thumb..pinky (MediaPipe fingertip landmarks 4/8/12/16/20).
@@ -190,7 +191,7 @@ function spherical(
 function buildChain(
   RAPIER: typeof RAPIER_NS, world: RAPIER_NS.World,
   fromBody: RAPIER_NS.RigidBody, toBody: RAPIER_NS.RigidBody, toAnchor: Vec2,
-): { segs: RAPIER_NS.RigidBody[]; nominalLen: number } {
+): { segs: RAPIER_NS.RigidBody[]; joints: RAPIER_NS.ImpulseJoint[]; nominalLen: number } {
   const f = fromBody.translation();
   const top = { x: f.x, y: f.y };
   const bt = toBody.translation();
@@ -200,6 +201,9 @@ function buildChain(
   const segHalf = nominalLen / SEG_COUNT / 2;
   const theta = Math.atan2((bot.x - top.x) / restDist, -(bot.y - top.y) / restDist);
   const segs: RAPIER_NS.RigidBody[] = [];
+  // joints[k] is the hinge ABOVE seg k: joints[0]=control->seg0, joints[k]=seg[k-1]->seg[k]. The final
+  // joints[SEG_COUNT]=seg_last->body. Kept so a cut can sever the chain at one hinge (see cutStringAtSeg).
+  const joints: RAPIER_NS.ImpulseJoint[] = [];
   let prev = fromBody;
   let prevBottom: Vec2 = { x: 0, y: 0 }; // control point = the body origin
   for (let i = 0; i < SEG_COUNT; i++) {
@@ -213,12 +217,12 @@ function buildChain(
     seg.setLinearDamping(DEFAULT_STRING_FRICTION);
     seg.setAngularDamping(DEFAULT_STRING_FRICTION * STRING_ANG_RATIO);
     segs.push(seg);
-    spherical(RAPIER, world, prev, prevBottom, seg, { x: 0, y: segHalf });
+    joints.push(spherical(RAPIER, world, prev, prevBottom, seg, { x: 0, y: segHalf }));
     prev = seg;
     prevBottom = { x: 0, y: -segHalf };
   }
-  spherical(RAPIER, world, prev, prevBottom, toBody, toAnchor);
-  return { segs, nominalLen };
+  joints.push(spherical(RAPIER, world, prev, prevBottom, toBody, toAnchor));
+  return { segs, joints, nominalLen };
 }
 
 // Add one puppet (torso + limbs + 5 kinematic controls) to the shared world at xOffset. Strings are
@@ -245,7 +249,8 @@ export function addPuppet(
   // ---- torso + limbs (shifted by xOffset; spherical anchors are body-local, so unchanged) ----
   const X = xOffset;
   const torsoHalf = 0.5;
-  const torsoCY = CONTROL_BASE_Y - CENTER_STRING_LEN - torsoHalf; // 4.3
+  // dropped 10% of the view height below the string-length rest point so the puppet/prompt sit lower
+  const torsoCY = CONTROL_BASE_Y - CENTER_STRING_LEN - torsoHalf - WORLD_VIEW_HEIGHT * 0.10; // 3.1
   const torso = limb(X + 0, torsoCY, torsoHalf, 0.25, 1.4, "#e8e8e8");
   const lArm = limb(X - 0.3, torsoCY - 0.1, 0.4, 0.12, 1.0, "#39d98a");
   const rArm = limb(X + 0.3, torsoCY - 0.1, 0.4, 0.12, 1.0, "#39d98a");
@@ -297,8 +302,31 @@ export function attachStringForSlot(
   const control = puppet.controls[slot];
   control.setTranslation({ x: controlPos.x, y: controlPos.y, z: 0 }, true);
   const part = puppet.partByTarget[bind.target];
-  const { segs, nominalLen } = buildChain(RAPIER, world, control, part, bind.bodyAnchor);
-  puppet.strings.push({ name: bind.name, control, body: part, target: bind.target, bodyAnchor: bind.bodyAnchor, segs, nominalLen, slot });
+  const { segs, joints, nominalLen } = buildChain(RAPIER, world, control, part, bind.bodyAnchor);
+  puppet.strings.push({ name: bind.name, control, body: part, target: bind.target, bodyAnchor: bind.bodyAnchor, segs, joints, nominalLen, slot, cutJoint: null });
+}
+
+// CUT an intact string at the hinge nearest `segIndex` (the swiped link), severing the chain into two
+// dangling halves: the upper (control..seg[cut-1]) keeps hanging from the control, the lower
+// (seg[cut]..body) keeps hanging from the part. The string OBJECT stays (so both halves render); it's
+// just no longer a continuous control->part connection. Returns the part it held, or null if the
+// string is missing / already cut.
+export function cutStringAtSeg(world: RAPIER_NS.World, puppet: Puppet, slot: number, segIndex: number): TargetName | null {
+  const s = puppet.strings.find((x) => x.slot === slot);
+  if (!s || s.cutJoint !== null) return null;
+  const j = Math.max(0, Math.min(SEG_COUNT - 1, segIndex)); // hinge ABOVE the swiped link
+  world.removeImpulseJoint(s.joints[j], true);
+  s.cutJoint = j;
+  return s.target;
+}
+
+// Sever every still-intact string (at its midpoint) — the full collapse when a puppet is killed, so
+// all strings dangle instead of vanishing.
+export function cutAllIntact(world: RAPIER_NS.World, puppet: Puppet): void {
+  for (const s of puppet.strings) if (s.cutJoint === null) {
+    world.removeImpulseJoint(s.joints[SEG_COUNT >> 1], true);
+    s.cutJoint = SEG_COUNT >> 1;
+  }
 }
 
 // Cut all strings: remove every chain segment (which also removes its joints + colliders). The
@@ -306,6 +334,17 @@ export function attachStringForSlot(
 export function detachAllStrings(world: RAPIER_NS.World, puppet: Puppet): void {
   for (const s of puppet.strings) for (const seg of s.segs) world.removeRigidBody(seg);
   puppet.strings = [];
+}
+
+// Cut ONE string (by finger slot): remove its segments and drop it from the list. Returns the part it
+// held (so the caller can react — e.g. cutting the `torso`/head string is the kill), or null if absent.
+export function detachString(world: RAPIER_NS.World, puppet: Puppet, slot: number): TargetName | null {
+  const idx = puppet.strings.findIndex((s) => s.slot === slot);
+  if (idx < 0) return null;
+  const s = puppet.strings[idx];
+  for (const seg of s.segs) world.removeRigidBody(seg);
+  puppet.strings.splice(idx, 1);
+  return s.target;
 }
 
 // Swing damping on the PUPPET PARTS (the "drag" / float knob). Segments are handled separately by

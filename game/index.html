@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Marionette Fighter</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body class="game">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+
+    <!-- HUD overlay (Street Fighter layout): power bars + timer + round pips, then the announcer -->
+    <div id="hud">
+      <div class="hud-top">
+        <div class="side left">
+          <div class="pname">PLAYER 1</div>
+          <div class="pbar"><div class="fill" id="p0fill"></div></div>
+          <div class="pips" id="p0pips"></div>
+        </div>
+        <div class="center">
+          <div class="timer" id="timer">99</div>
+          <div class="rounds">BEST OF 5</div>
+        </div>
+        <div class="side right">
+          <div class="pname">PLAYER 2</div>
+          <div class="pbar"><div class="fill" id="p1fill"></div></div>
+          <div class="pips" id="p1pips"></div>
+        </div>
+      </div>
+      <div class="announce"><div id="annc"></div><div id="annsub"></div></div>
+    </div>
+
+    <!-- small self-view, just enough to line your hands up during calibration -->
+    <div id="camBox">
+      <video id="cam" autoplay playsinline muted></video>
+      <canvas id="camOverlay"></canvas>
+    </div>
+
+    <a class="home-link" href="/">&larr; home</a>
+    <div id="boot">loading model + physics&hellip;</div>
+  </div>
+
+  <script type="module" src="/src/game.ts"></script>
+</body>
+</html>

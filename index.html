@@ -3,92 +3,17 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Marionette Fighter — Spike 2 (fingers → strings)</title>
+  <title>Marionette</title>
   <link rel="stylesheet" href="/src/style.css" />
 </head>
 <body>
-  <div class="wrap">
-    <div id="stage">
-      <canvas id="scene"></canvas>
-
-      <!-- camera preview + hand-landmark overlay (kept in the same box) -->
-      <div id="camBox">
-        <video id="cam" autoplay playsinline muted></video>
-        <canvas id="camOverlay"></canvas>
-        <div id="camLabel">fingers &rarr; strings</div>
-      </div>
-
-      <div id="boot">loading model + physics&hellip;</div>
-    </div>
-
-    <aside>
-      <h1>Marionette Spike 2</h1>
-      <div class="stat"><span>fps</span><b><span id="fps">&ndash;</span></b></div>
-      <div class="stat"><span>hands</span><b><span id="hcount">0</span> / 2</b></div>
-      <div class="stat"><span>tracking</span><b id="drop">LOST</b></div>
-      <div class="stat"><span>head string</span><b><span id="slen">&ndash;</span>% of view</b></div>
-
-      <div class="row">
-        <label for="camSel">camera <span class="dim">(video source)</span></label>
-        <select id="camSel"></select>
-      </div>
-      <div class="row">
-        <label for="qualSel">quality <span class="dim">(higher = sharper but heavier detection)</span></label>
-        <select id="qualSel">
-          <option value="480p">480p (640&times;480) &mdash; fastest detection</option>
-          <option value="720p">720p (1280&times;720)</option>
-          <option value="1080p">1080p (1920&times;1080) &mdash; sharpest, heaviest</option>
-        </select>
-      </div>
-
-      <div class="row">
-        <label>swing range <span class="val" id="rv">1.00</span> <span class="dim">(screen reach; 1.0 = full width/height)</span></label>
-        <input id="range" type="range" min="0" max="1" step="0.05" value="1.0" />
-      </div>
-      <div class="row">
-        <label>play margin <span class="val" id="mv">0.10</span> <span class="dim">(inset camera&rarr;play; central area fills canvas, margin overshoots offscreen; 0 = edge-to-edge)</span></label>
-        <input id="margin" type="range" min="0" max="0.25" step="0.01" value="0.10" />
-      </div>
-      <div class="row">
-        <label>gravity <span class="val" id="gv">9.8</span> <span class="dim">(low = floaty, high = snappy)</span></label>
-        <input id="grav" type="range" min="3" max="22" step="0.5" value="9.8" />
-      </div>
-      <div class="row">
-        <label>drag <span class="val" id="dv">0.4</span> <span class="dim">(air resistance; low = falls naturally, high = floats but settles fast)</span></label>
-        <input id="damp" type="range" min="0" max="3" step="0.1" value="0.4" />
-      </div>
-      <div class="row">
-        <label>weight <span class="val" id="wv">4.0</span> <span class="dim">(puppet heaviness; more mass = more string tension)</span></label>
-        <input id="weight" type="range" min="1" max="12" step="0.5" value="4" />
-      </div>
-      <div class="row">
-        <label>string friction <span class="val" id="fv">8.0</span> <span class="dim">(joint friction; low = floppy, high = stiff/settles but laggy)</span></label>
-        <input id="fric" type="range" min="0" max="20" step="0.5" value="8" />
-      </div>
-      <div class="row">
-        <label>smoothing <span class="val" id="sv">0.01</span> <span class="dim">(glides controls between detections; 0 = snap/jumpy, high = smooth but laggy)</span></label>
-        <input id="smooth" type="range" min="0" max="0.2" step="0.01" value="0.01" />
-      </div>
-      <div class="row">
-        <label><input id="debugChk" type="checkbox" /> debug: physics lines <span class="dim">(raw engine segments + stretch%; costs fps)</span></label>
-      </div>
-
-      <div class="note">
-        <b>Two players, one camera.</b> Two marionettes stand side by side; each hand drives the
-        puppet on its side of the screen. <b>Each fingertip is a string</b> — five numbered control
-        points follow your fingers and each pulls one body part.<br><br>
-        The binding mirrors per hand so the strings never cross: for the hand on the right of screen,
-        <b>1</b> thumb &rarr; screen-left hand &middot; <b>2</b> index &rarr; screen-left foot &middot;
-        <b>3</b> middle &rarr; head &middot; <b>4</b> ring &rarr; screen-right foot &middot;
-        <b>5</b> pinky &rarr; screen-right hand; the other hand's binding is the left/right mirror.<br><br>
-        Move your whole hand to move the puppet; <b>spread or curl</b> individual fingers to work
-        the limbs. Keep each hand on its own half. The camera overlay (bottom-right) rings both
-        hands' driving fingertips in matching colours. The weight + drag sliders apply to both
-        puppets.
-      </div>
-    </aside>
+  <div class="home">
+    <h1>Marionette</h1>
+    <p>Puppeteer a physics marionette with your hands. Bring it alive, then fight.</p>
+    <nav class="home-links">
+      <a href="/game/"><b>Game</b><span>cut the other player's strings</span></a>
+      <a href="/harness/"><b>Harness</b><span>dev sandbox &mdash; tune the rig</span></a>
+    </nav>
   </div>
-
-  <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

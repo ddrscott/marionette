@@ -106,18 +106,27 @@ export class Renderer {
     rig.strings.forEach((s) => {
       const col = FINGER_COLORS[s.slot % FINGER_COLORS.length];
       const top = s.control.translation();
-      const pts: Vec2[] = [{ x: top.x, y: top.y }];
-      for (const seg of s.segs) { const c = seg.translation(); pts.push({ x: c.x, y: c.y }); }
+      const controlPt: Vec2 = { x: top.x, y: top.y };
+      const segPts: Vec2[] = s.segs.map((seg) => { const c = seg.translation(); return { x: c.x, y: c.y }; });
       const end = localToWorld(s.body, s.bodyAnchor);
-      pts.push(end);
-      ctx.strokeStyle = col;
-      ctx.lineWidth = 1.6;
-      ctx.globalAlpha = 0.85;
-      ctx.beginPath();
-      this.smoothPath(pts);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-      // attach dot on the puppet
+      const stroke = (pts: Vec2[]) => {
+        if (pts.length < 2) return;
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 1.6;
+        ctx.globalAlpha = 0.85;
+        ctx.beginPath();
+        this.smoothPath(pts);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      };
+      if (s.cutJoint === null) {
+        stroke([controlPt, ...segPts, end]);
+      } else {
+        // severed at the hinge above seg[cutJoint]: upper half hangs from the control, lower from the part.
+        stroke([controlPt, ...segPts.slice(0, s.cutJoint)]);
+        stroke([...segPts.slice(s.cutJoint), end]);
+      }
+      // attach dot on the puppet (the body end stays attached to the lower half)
       ctx.fillStyle = col;
       ctx.beginPath();
       ctx.arc(this.sx(end.x), this.sy(end.y), 3, 0, Math.PI * 2);
@@ -143,6 +152,7 @@ export class Renderer {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     rig.strings.forEach((s) => {
+      if (s.cutJoint !== null) return; // severed string: no live control point
       const t = s.control.translation();
       const px = this.sx(t.x), py = this.sy(t.y);
       ctx.fillStyle = FINGER_COLORS[s.slot % FINGER_COLORS.length];
@@ -163,9 +173,9 @@ export class Renderer {
   drawPrompt(worldX: number, side: 0 | 1, progress: number, now: number): void {
     const { ctx } = this;
     const h = this.canvas.height;
-    const cx = this.sx(worldX); // horizontally above the puppet
-    const cy = h / 6;           // top third
-    const hh = 0.30 * h;        // ~30% of screen height
+    const cx = this.sx(worldX);      // horizontally above the puppet
+    const cy = h * (1 / 6 + 0.10);   // top third, dropped 10% of view height (matches the puppet drop)
+    const hh = 0.30 * h;             // ~30% of screen height
     const hw = hh * HAND_AR;
 
     if (HAND_TINTED) {
