@@ -74,7 +74,10 @@ export interface Capsule {
   neutral: Vec2; // this part's home offset from the torso center — the neutral pose reposePuppet resets to
 }
 
-export type TargetName = "torso" | "lArm" | "rArm" | "lLeg" | "rLeg";
+// The humanoid part ids, plus ANY string id so bespoke rigs (see rigs.ts / buildRig) can name their
+// own parts (a bear's "head", a mantis's "thorax", a kangaroo's "tail") while the built-in humanoid
+// keeps literal-checked names. `(string & {})` preserves the literal autocomplete but widens to string.
+export type TargetName = "torso" | "lArm" | "rArm" | "lLeg" | "rLeg" | (string & {});
 
 // One string: a chain from a finger control point (its top) to a body part.
 export interface PuppetString {
@@ -153,31 +156,42 @@ export interface Puppet {
   binding: FingerBind[];           // the binding this puppet was built with
   xOffset: number;
   homeTorso: Vec2;                 // torso center at scene setup — the neutral pose it's held at while waiting
+  rootId: TargetName;              // the anchor part (id of parts[0]) — homeTorso positions THIS part
 }
 
-// Create the shared world + floor ONCE. Each puppet is then added via addPuppet at an x-offset.
-export function buildWorld(RAPIER: typeof RAPIER_NS, gravityY: number): RAPIER_NS.World {
+// Create the shared world ONCE. The game/harness get a floor + center divider wall (defaults); the
+// `/characters` demo opts BOTH out (`{ wall:false, floor:false }`) so nothing fouls a hanging puppet
+// or blocks the deselected ones from falling clean off the bottom of the screen.
+export function buildWorld(
+  RAPIER: typeof RAPIER_NS, gravityY: number,
+  opts: { wall?: boolean; floor?: boolean } = {},
+): RAPIER_NS.World {
+  const { wall = true, floor = true } = opts;
   const world = new RAPIER.World({ x: 0, y: -gravityY, z: 0 });
   world.integrationParameters.numSolverIterations = SOLVER_ITERATIONS;
 
   // ---- floor: a shared static shelf spanning both puppets ----
-  const floorBody = world.createRigidBody(
-    RAPIER.RigidBodyDesc.fixed().setTranslation(0, FLOOR_TOP - FLOOR_HALF_H, 0),
-  );
-  world.createCollider(
-    RAPIER.ColliderDesc.cuboid(FLOOR_HALF_W, FLOOR_HALF_H, FLOOR_HALF_D).setCollisionGroups(FLOOR_GROUP),
-    floorBody,
-  );
+  if (floor) {
+    const floorBody = world.createRigidBody(
+      RAPIER.RigidBodyDesc.fixed().setTranslation(0, FLOOR_TOP - FLOOR_HALF_H, 0),
+    );
+    world.createCollider(
+      RAPIER.ColliderDesc.cuboid(FLOOR_HALF_W, FLOOR_HALF_H, FLOOR_HALF_D).setCollisionGroups(FLOOR_GROUP),
+      floorBody,
+    );
+  }
 
   // ---- center divider wall: x=0, from `openTop` (opening) up to ~infinity ----
-  const openTop = FLOOR_TOP + WALL_OPENING; // top of the bottom opening = bottom of the wall
-  const wallBody = world.createRigidBody(
-    RAPIER.RigidBodyDesc.fixed().setTranslation(0, (openTop + WALL_TOP) / 2, 0),
-  );
-  world.createCollider(
-    RAPIER.ColliderDesc.cuboid(WALL_HALF_W, (WALL_TOP - openTop) / 2, FLOOR_HALF_D).setCollisionGroups(FLOOR_GROUP),
-    wallBody,
-  );
+  if (wall) {
+    const openTop = FLOOR_TOP + WALL_OPENING; // top of the bottom opening = bottom of the wall
+    const wallBody = world.createRigidBody(
+      RAPIER.RigidBodyDesc.fixed().setTranslation(0, (openTop + WALL_TOP) / 2, 0),
+    );
+    world.createCollider(
+      RAPIER.ColliderDesc.cuboid(WALL_HALF_W, (WALL_TOP - openTop) / 2, FLOOR_HALF_D).setCollisionGroups(FLOOR_GROUP),
+      wallBody,
+    );
+  }
   return world;
 }
 
@@ -300,7 +314,58 @@ export function addPuppet(
     );
   });
 
-  return { controls, parts, torso, partByTarget, strings: [], binding, xOffset, homeTorso: { x: tp.x, y: tp.y } };
+  return { controls, parts, torso, partByTarget, strings: [], binding, xOffset, homeTorso: { x: tp.x, y: tp.y }, rootId: "torso" };
+}
+
+// ---- data-driven rigs (the character roster) --------------------------------------------------
+// A bespoke puppet as plain data: capsule parts (positioned RELATIVE to the root part at 0,0),
+// internal spherical joints, and a 5-finger binding onto those part ids. buildRig() below turns one
+// into the same `Puppet` the humanoid uses, so the attach ritual / cut / draw all work unchanged.
+// See rigs.ts for the ten characters. parts[0] is the ROOT (what homeTorso positions).
+export interface PartDef { id: string; dx: number; dy: number; half: number; rad: number; density: number; color: string; }
+export interface JointDef { a: string; ax: number; ay: number; b: string; bx: number; by: number; }
+export interface RigDef { name: string; accent: string; parts: PartDef[]; joints: JointDef[]; binding: FingerBind[]; }
+
+// Build a bespoke rig at world `center` (the root part's center). Same shape as addPuppet's humanoid,
+// so everything downstream (reposePuppet, attach ritual, cut, draw) treats it identically.
+export function buildRig(RAPIER: typeof RAPIER_NS, world: RAPIER_NS.World, center: Vec2, def: RigDef): Puppet {
+  const parts: Capsule[] = [];
+  const byId: Record<string, RAPIER_NS.RigidBody> = {};
+  for (const pd of def.parts) {
+    const body = world.createRigidBody(dynDesc(RAPIER, center.x + pd.dx, center.y + pd.dy));
+    body.enableCcd(true);
+    const collider = world.createCollider(
+      RAPIER.ColliderDesc.capsule(pd.half, pd.rad).setDensity(pd.density).setCollisionGroups(PUPPET_GROUP),
+      body,
+    );
+    // dx/dy are already relative to the root, so they ARE the neutral offset reposePuppet resets to.
+    parts.push({ body, half: pd.half, rad: pd.rad, color: pd.color, collider, baseDensity: pd.density, neutral: { x: pd.dx, y: pd.dy } });
+    byId[pd.id] = body;
+  }
+  for (const j of def.joints) spherical(RAPIER, world, byId[j.a], { x: j.ax, y: j.ay }, byId[j.b], { x: j.bx, y: j.by });
+
+  const partByTarget = byId as Record<TargetName, RAPIER_NS.RigidBody>;
+  const controls: RAPIER_NS.RigidBody[] = def.binding.map((f) => {
+    const bt = byId[f.target].translation();
+    return world.createRigidBody(
+      RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(bt.x + f.bodyAnchor.x, CONTROL_BASE_Y, 0),
+    );
+  });
+
+  const root = def.parts[0];
+  return {
+    controls, parts, torso: byId[root.id], partByTarget, strings: [], binding: def.binding,
+    xOffset: center.x, homeTorso: { x: center.x, y: center.y }, rootId: root.id,
+  };
+}
+
+// Remove a whole puppet from the world (parts + controls + any live string segments). removeRigidBody
+// takes its colliders + attached joints with it, so this fully frees a deselected/reset puppet.
+export function removePuppet(world: RAPIER_NS.World, p: Puppet): void {
+  for (const s of p.strings) for (const seg of s.segs) world.removeRigidBody(seg);
+  for (const part of p.parts) world.removeRigidBody(part.body);
+  for (const c of p.controls) world.removeRigidBody(c);
+  p.strings = [];
 }
 
 // Reset the puppet to its NEUTRAL pose — each part at its home offset from the torso, upright, still —

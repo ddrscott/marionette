@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Marionette — Characters</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body class="chars">
+  <div id="charstage">
+    <canvas id="scene"></canvas>
+
+    <!-- small self-view so you can line your hand up while picking + attaching -->
+    <div id="camBox">
+      <video id="cam" autoplay playsinline muted></video>
+      <canvas id="camOverlay"></canvas>
+    </div>
+
+    <a class="home-link" href="/">&larr; home</a>
+    <div id="boot">loading model + physics&hellip;</div>
+  </div>
+
+  <!-- portrait-lock: shown (via CSS) only on touch devices held in portrait -->
+  <div class="rotate-gate">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg>
+    <div class="rg-title">Rotate to landscape</div>
+    <div class="rg-sub">turn your device sideways to play</div>
+  </div>
+
+  <script type="module" src="/src/characters.ts"></script>
+</body>
+</html>

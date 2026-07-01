@@ -16,3 +16,16 @@ export function handPointer(lm: Landmark[]): HandPointer {
   const thumbOpen = Math.hypot(thumbTip.x - indexMcp.x, thumbTip.y - indexMcp.y) / scale;
   return { x: 1 - indexTip.x, y: indexTip.y, thumbOpen };
 }
+
+// Closed FIST detector (for the /characters "hover + fist to pick" select gesture). A curled finger
+// pulls its TIP closer to the wrist than its PIP knuckle; a fist is ≥3 of the four fingers curled.
+// The thumb is ignored (it tucks unreliably), which keeps this robust to hand orientation.
+const FIST_TIPS = [8, 12, 16, 20];
+const FIST_PIPS = [6, 10, 14, 18];
+export function isFist(lm: Landmark[]): boolean {
+  const wrist = lm[0];
+  const d = (i: number) => Math.hypot(lm[i].x - wrist.x, lm[i].y - wrist.y);
+  let curled = 0;
+  for (let k = 0; k < FIST_TIPS.length; k++) if (d(FIST_TIPS[k]) < d(FIST_PIPS[k])) curled++;
+  return curled >= 3;
+}

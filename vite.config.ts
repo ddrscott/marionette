@@ -20,6 +20,7 @@ export default defineConfig({
         harness: entry("./harness/index.html"),
         game: entry("./game/index.html"),
         keyboard: entry("./keyboard/index.html"),
+        characters: entry("./characters/index.html"),
       },
     },
   },

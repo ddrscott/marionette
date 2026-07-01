@@ -56,6 +56,10 @@ function localToWorld(body: RAPIER_NS.RigidBody, a: Vec2): Vec2 {
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   scale = 80; // px per world unit; recomputed on resize from the FIXED world view height
+  // The game/harness draw the fighting floor + center wall; the /characters demo turns BOTH off for a
+  // clean stage (its world has no floor/wall either, so deselected puppets fall clean off the bottom).
+  showFloor = true;
+  showWall = true;
 
   constructor(readonly canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext("2d");
@@ -98,15 +102,18 @@ export class Renderer {
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
     // floor band
-    const floorPx = this.sy(FLOOR_TOP);
-    ctx.fillStyle = "#121216";
-    ctx.fillRect(0, floorPx, this.canvas.width, this.canvas.height - floorPx);
-    ctx.strokeStyle = "#2c2c34";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(0, floorPx); ctx.lineTo(this.canvas.width, floorPx);
-    ctx.stroke();
+    if (this.showFloor) {
+      const floorPx = this.sy(FLOOR_TOP);
+      ctx.fillStyle = "#121216";
+      ctx.fillRect(0, floorPx, this.canvas.width, this.canvas.height - floorPx);
+      ctx.strokeStyle = "#2c2c34";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, floorPx); ctx.lineTo(this.canvas.width, floorPx);
+      ctx.stroke();
+    }
 
+    if (!this.showWall) return;
     // center divider wall — from the top of the view down to the opening (a gap remains near the floor)
     const wallW = Math.max(2, WALL_HALF_W * 2 * this.scale);
     const wallX = this.sx(0);
@@ -248,6 +255,81 @@ export class Renderer {
       ctx.fillStyle = "#0d0d0f";
       ctx.fillText(String(i + 1), px, py);
     });
+    ctx.textAlign = "start";
+    ctx.textBaseline = "alphabetic";
+  }
+
+  // ---- character-select helpers (/characters) — all sized in world units so they scale with the canvas ----
+
+  // A character's name under its preview. `active` = currently hovered (brightens + accent colour).
+  drawLabel(worldX: number, worldY: number, text: string, accent: string, active: boolean): void {
+    const { ctx } = this;
+    ctx.font = `${(active ? 0.44 : 0.36) * this.scale}px "Russo One", ui-monospace, monospace`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = active ? accent : "rgba(216,212,204,0.7)";
+    ctx.fillText(text, this.sx(worldX), this.sy(worldY));
+    ctx.textAlign = "start";
+    ctx.textBaseline = "alphabetic";
+  }
+
+  // Hover frame + fist-hold progress arc around a character card. progress 0..1 fills the frame.
+  drawSelector(worldX: number, worldY: number, halfW: number, halfH: number, progress: number, accent: string): void {
+    const { ctx } = this;
+    const x = this.sx(worldX - halfW), y = this.sy(worldY + halfH);
+    const w = halfW * 2 * this.scale, h = halfH * 2 * this.scale;
+    const r = 0.18 * this.scale;
+    const rr = (): void => {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    };
+    ctx.fillStyle = "rgba(79,176,170,0.06)";
+    rr(); ctx.fill();
+    ctx.strokeStyle = "rgba(232,232,232,0.18)";
+    ctx.lineWidth = Math.max(1.5, 0.03 * this.scale);
+    rr(); ctx.stroke();
+    if (progress > 0) {
+      // a growing accent frame that closes as the fist-hold completes
+      const perim = 2 * (w + h);
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = Math.max(2, 0.05 * this.scale);
+      ctx.setLineDash([perim * progress, perim]);
+      rr(); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  // The hand cursor on the select screen: a ring at the index-finger point; filled when a fist is held.
+  drawCursor(worldX: number, worldY: number, color: string, closed: boolean): void {
+    const { ctx } = this;
+    const px = this.sx(worldX), py = this.sy(worldY);
+    const r = 0.22 * this.scale;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(2, 0.04 * this.scale);
+    ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = closed ? color : "rgba(255,255,255,0.12)";
+    ctx.beginPath(); ctx.arc(px, py, closed ? r * 0.6 : r * 0.28, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Big centered banner text (e.g. "PICK YOUR FIGHTER" / "raise a hand"). `y` in world units.
+  drawBanner(worldY: number, text: string, sub: string): void {
+    const { ctx } = this;
+    const cx = this.canvas.width / 2;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = `${0.72 * this.scale}px "Russo One", ui-monospace, monospace`;
+    ctx.fillStyle = "rgba(232,232,232,0.92)";
+    ctx.fillText(text, cx, this.sy(worldY));
+    if (sub) {
+      ctx.font = `${0.34 * this.scale}px "Rajdhani", ui-monospace, monospace`;
+      ctx.fillStyle = "rgba(232,232,232,0.55)";
+      ctx.fillText(sub, cx, this.sy(worldY) + 0.6 * this.scale);
+    }
     ctx.textAlign = "start";
     ctx.textBaseline = "alphabetic";
   }
