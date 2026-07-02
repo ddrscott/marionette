@@ -1,6 +1,6 @@
 # Work Queue
 
-- [-] Rope joint carries string tension — add one `JointData.rope(nominalLen)` control→part per string in parallel with the visual chain (kills stretch, lets solver iterations + segment mass + string friction come down); MUST be severed on every cut/detach path or cuts stop releasing parts — see [rope-joint-tension.md](rope-joint-tension.md)
+- [x] Rope joint carries string tension — add one `JointData.rope(nominalLen)` control→part per string in parallel with the visual chain (kills stretch, lets solver iterations + segment mass + string friction come down); MUST be severed on every cut/detach path or cuts stop releasing parts — see [rope-joint-tension.md](rope-joint-tension.md)
 
 - [x] Add a CLEAR key to the hand keyboard — on-screen key (both layers, hand/mouse/tap) that empties the current entry via the shared pushChar + an onClear hook; on /keyboard it restarts the current phrase (clear text + reset timer, same prompt) — see [keyboard-clear-key.md](keyboard-clear-key.md)
 

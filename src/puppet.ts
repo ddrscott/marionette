@@ -64,8 +64,14 @@ const WALL_TOP = 200;                           // effectively infinite (the vie
 // Puppet weight multiplier (heavier parts keep more tension on the strings). Live via setPuppetWeight.
 export const DEFAULT_PUPPET_WEIGHT = 4;
 
-// A 5-string rig with closed loops needs many solver passes to keep the chains rigid; cheap enough.
-const SOLVER_ITERATIONS = 48;
+// Solver passes per step. The chains USED to need 48 to stay rigid (the iterative impulse solver
+// spreads length error across all 21 hinges, so few passes = rubberband). Now the parallel rope joint
+// (attachStringForSlot) carries the taut-length cap in ONE constraint that converges immediately, so
+// the chain only has to hold drape/hinge shape. Headless sweep (tools/rope-joint.ts): WITH the rope
+// joint, stretch stays hard-capped at chord/nominalLen = 1.000 from 48 down to 8 iters, and the
+// anti-seizure metric is unchanged 48→16 (peak ~0.50 u/s, 6/60 spasms) — only creeping at 8. 16 keeps
+// a 2× margin above that and cuts solver cost ~3×. (Chain-only at 16 would rubberband to ~1.03.)
+const SOLVER_ITERATIONS = 16;
 
 export interface Vec2 { x: number; y: number; }
 export interface Capsule {
@@ -89,6 +95,13 @@ export interface PuppetString {
   bodyAnchor: Vec2;             // body-local
   segs: RAPIER_NS.RigidBody[];  // the chain links, control-side -> body-side
   joints: RAPIER_NS.ImpulseJoint[]; // SEG_COUNT+1 hinges; joints[k] is above seg k (see buildChain)
+  // Direct control->part max-distance (rope) impulse joint running IN PARALLEL with the chain. It does
+  // nothing while the string is slack (the chain drapes) but becomes the single load-bearing constraint
+  // the instant the string goes taut — one constraint converges immediately instead of stretching the
+  // error across 21 hinges (kills the rubberband). CRITICAL: it tethers part directly to control, so it
+  // MUST be severed on EVERY cut/detach path or a "cut" string still invisibly holds the part up. Null
+  // once severed / never built (guards double-remove). See severRope + the cut/detach functions.
+  ropeJoint: RAPIER_NS.ImpulseJoint | null;
   nominalLen: number;           // total chain length (its inextensible limit)
   slot: number;                 // finger slot 0..4 (thumb..pinky) — stable colour/number, attach order
   cutJoint: number | null;      // null = intact; else the hinge index severed (chain split into 2 dangling halves)
@@ -375,7 +388,10 @@ export function buildRig(RAPIER: typeof RAPIER_NS, world: RAPIER_NS.World, cente
 // Remove a whole puppet from the world (parts + controls + any live string segments). removeRigidBody
 // takes its colliders + attached joints with it, so this fully frees a deselected/reset puppet.
 export function removePuppet(world: RAPIER_NS.World, p: Puppet): void {
-  for (const s of p.strings) for (const seg of s.segs) world.removeRigidBody(seg);
+  for (const s of p.strings) {
+    severRope(world, s); // remove the control->part rope joint explicitly (safety/order) before its bodies
+    for (const seg of s.segs) world.removeRigidBody(seg);
+  }
   for (const part of p.parts) world.removeRigidBody(part.body);
   for (const c of p.controls) world.removeRigidBody(c);
   p.strings = [];
@@ -408,7 +424,22 @@ export function attachStringForSlot(
   control.setTranslation({ x: controlPos.x, y: controlPos.y, z: 0 }, true);
   const part = puppet.partByTarget[bind.target];
   const { segs, joints, nominalLen } = buildChain(RAPIER, world, control, part, bind.bodyAnchor);
-  puppet.strings.push({ name: bind.name, control, body: part, target: bind.target, bodyAnchor: bind.bodyAnchor, segs, joints, nominalLen, slot, cutJoint: null });
+  // Rope joint parallel to the chain: a pure max-distance cap control-origin -> part@bodyAnchor at the
+  // chain's own length. Anchors match buildChain's endpoints (control origin {0,0}; body-LOCAL anchor —
+  // the rope solver rotates it with the part, same as the final hinge). Load-bearing when taut, inert
+  // when slack. MUST be severed on every cut/detach path (see severRope).
+  const ropeJoint = world.createImpulseJoint(
+    RAPIER.JointData.rope(nominalLen, { x: 0, y: 0, z: 0 }, { x: bind.bodyAnchor.x, y: bind.bodyAnchor.y, z: 0 }),
+    control, part, true,
+  );
+  puppet.strings.push({ name: bind.name, control, body: part, target: bind.target, bodyAnchor: bind.bodyAnchor, segs, joints, ropeJoint, nominalLen, slot, cutJoint: null });
+}
+
+// Remove a string's rope joint if it still exists, then null it (guards double-remove — e.g. a string
+// cut and later reset). The rope joint runs control->part (NOT a segment), so it survives segment
+// removal and MUST be taken out explicitly on every cut/detach path or the "cut" part stays held.
+function severRope(world: RAPIER_NS.World, s: PuppetString): void {
+  if (s.ropeJoint) { world.removeImpulseJoint(s.ropeJoint, true); s.ropeJoint = null; }
 }
 
 // CUT an intact string at the hinge nearest `segIndex` (the swiped link), severing the chain into two
@@ -421,6 +452,7 @@ export function cutStringAtSeg(world: RAPIER_NS.World, puppet: Puppet, slot: num
   if (!s || s.cutJoint !== null) return null;
   const j = Math.max(0, Math.min(SEG_COUNT - 1, segIndex)); // hinge ABOVE the swiped link
   world.removeImpulseJoint(s.joints[j], true);
+  severRope(world, s); // the rope joint bypasses the chain — drop it too or the "cut" part stays held
   s.cutJoint = j;
   return s.target;
 }
@@ -430,6 +462,7 @@ export function cutStringAtSeg(world: RAPIER_NS.World, puppet: Puppet, slot: num
 export function cutAllIntact(world: RAPIER_NS.World, puppet: Puppet): void {
   for (const s of puppet.strings) if (s.cutJoint === null) {
     world.removeImpulseJoint(s.joints[SEG_COUNT >> 1], true);
+    severRope(world, s); // parallel rope joint bypasses the chain — sever it or the part stays held
     s.cutJoint = SEG_COUNT >> 1;
   }
 }
@@ -437,7 +470,10 @@ export function cutAllIntact(world: RAPIER_NS.World, puppet: Puppet): void {
 // Cut all strings: remove every chain segment (which also removes its joints + colliders). The
 // control + part bodies remain; with nothing holding it up the puppet falls to the floor — the reset.
 export function detachAllStrings(world: RAPIER_NS.World, puppet: Puppet): void {
-  for (const s of puppet.strings) for (const seg of s.segs) world.removeRigidBody(seg);
+  for (const s of puppet.strings) {
+    severRope(world, s); // rope joint is on control+part (not a seg) — removeRigidBody won't take it
+    for (const seg of s.segs) world.removeRigidBody(seg);
+  }
   puppet.strings = [];
 }
 
@@ -447,6 +483,7 @@ export function detachString(world: RAPIER_NS.World, puppet: Puppet, slot: numbe
   const idx = puppet.strings.findIndex((s) => s.slot === slot);
   if (idx < 0) return null;
   const s = puppet.strings[idx];
+  severRope(world, s); // rope joint is on control+part (not a seg) — removeRigidBody won't take it
   for (const seg of s.segs) world.removeRigidBody(seg);
   puppet.strings.splice(idx, 1);
   return s.target;
