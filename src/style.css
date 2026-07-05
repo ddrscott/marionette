@@ -333,21 +333,22 @@ body.kb #camBox { z-index: 55; } /* self-view stays visible above the how-to bac
 .kb-btn[hidden] { display: none; }
 
 /* ===== shared settings menu (gear → slide-over panel) — settingsMenu.ts, all play scenes ===== */
-/* Gear button. Default is top-left (free on /characters + /pose). Scenes whose top-left/corner is
-   taken get a per-body override below — same pattern the fs/mute buttons use. */
+/* Gear button — top-right by default. Scenes whose top-right corner is taken get a per-body override
+   below (same pattern the fs/mute buttons use). */
 .settings-btn {
   position: absolute; z-index: 30;
   top: calc(12px + env(safe-area-inset-top, 0px));
-  left: calc(14px + env(safe-area-inset-left, 0px));
+  right: calc(14px + env(safe-area-inset-right, 0px));
   width: 34px; height: 34px; display: grid; place-items: center; padding: 0;
   color: var(--dim); background: rgba(20, 20, 26, .55); border: 1px solid #2a2a32; border-radius: 8px; cursor: pointer;
 }
 .settings-btn:hover { color: var(--accent); border-color: var(--accent); }
 .settings-btn svg { width: 18px; height: 18px; }
-/* /game — top is the HUD, bottom-right is fs+mute; tuck the gear into that cluster (left of fullscreen). */
-body.game .settings-btn { top: auto; left: auto; right: 98px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
-/* /keyboard — fullscreen sits top-right; the gear goes just left of it. */
-body.kb .settings-btn { top: calc(12px + env(safe-area-inset-top, 0px)); left: auto; right: 56px; }
+/* /keyboard — fullscreen already sits top-right; the gear goes just left of it. */
+body.kb .settings-btn { right: 56px; }
+/* /game — the top-right is the PLAYER 2 HUD (name + power bar), so the gear can't go there; it joins
+   the bottom-right control cluster instead, left of the fullscreen + mute buttons. */
+body.game .settings-btn { top: auto; right: 98px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
 
 /* Full-viewport scrim + slide-in panel (fixed to the viewport, above all scene chrome). */
 .settings-scrim {
@@ -379,6 +380,13 @@ body.kb .settings-btn { top: calc(12px + env(safe-area-inset-top, 0px)); left: a
 .settings-switch.off { color: var(--danger); }
 .settings-switch svg { width: 18px; height: 18px; }
 .settings-hint { color: var(--dim); font-size: 11px; margin-top: 6px; line-height: 1.4; }
+/* finger → part remap rows: a fixed finger label + a target <select> */
+.set-remap-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.set-remap-finger { flex: 0 0 5.5em; color: var(--fg); font-size: 13px; letter-spacing: .02em; }
+.set-remap-row select { flex: 1; }
+.settings-reset { margin-top: 12px; padding: 7px 12px; font: 600 11px/1 var(--ui); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--accent); background: transparent; border: 1px solid var(--accent); border-radius: 6px; cursor: pointer; }
+.settings-reset:hover { background: rgba(79, 176, 170, .14); }
 /* narrow / portrait: dock as a bottom sheet instead of a right-side panel */
 @media (max-width: 640px), (orientation: portrait) {
   .settings-panel {

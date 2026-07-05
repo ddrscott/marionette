@@ -15,7 +15,7 @@ import {
   buildWorld, addPuppet, reposePuppet, setPuppetWeight,
   RIGHT_HAND_BINDING, DEFAULT_PUPPET_WEIGHT,
   DEFAULT_STRING_STIFFNESS, DEFAULT_STRING_FORCE_CAP,
-  type Vec2,
+  type Vec2, type FingerBind, type TargetName,
 } from "./puppet.ts";
 import { Pilot, type PilotCfg } from "./pilot.ts";
 import { Renderer, drawHands, teamColor, TEAM_TEAL, type PoseSilPart } from "./draw.ts";
@@ -57,6 +57,35 @@ const builtinPose = (i: number): PoseNode[] =>
 
 const wrapAbs = (d: number): number => Math.abs(Math.atan2(Math.sin(d), Math.cos(d)));
 
+// ---- finger → part remap (settings menu) ----
+// The player can reassign which numbered finger drives which body part. The 5 finger SLOTS keep their
+// physical landmark (thumb=4 … pinky=20); only the target part (and its canonical body anchor) changes.
+const LS_BINDING = "handbattle.pose.binding";
+const FINGER_NAMES = ["thumb", "index", "middle", "ring", "pinky"];
+const TARGET_LABELS: Record<string, string> = { lArm: "left arm", rArm: "right arm", lLeg: "left leg", rLeg: "right leg", torso: "head" };
+const BASE_BIND = RIGHT_HAND_BINDING;                          // 5 canonical rows (landmark + anchor per target)
+const DEFAULT_TARGETS = BASE_BIND.map((f) => f.target);        // ["lArm","lLeg","torso","rLeg","rArm"]
+const ANCHOR_BY_TARGET = new Map(BASE_BIND.map((f) => [f.target, f.bodyAnchor] as const));
+const REMAP_TARGETS = DEFAULT_TARGETS.map((t) => ({ value: String(t), label: TARGET_LABELS[t] ?? String(t) }));
+
+// Build a full binding from a per-slot target list: fixed landmark, chosen target, that target's anchor.
+const makeBinding = (targets: string[]): FingerBind[] =>
+  BASE_BIND.map((f, i) => {
+    const t = (targets[i] ?? f.target) as TargetName;
+    return { name: `${i + 1} ${FINGER_NAMES[i]}→${TARGET_LABELS[t] ?? t}`, landmark: f.landmark, target: t, bodyAnchor: ANCHOR_BY_TARGET.get(t) ?? f.bodyAnchor };
+  });
+
+// Saved mapping (5 known targets), else the default. Guards against a stale/garbage localStorage value.
+const loadTargets = (): string[] => {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(LS_BINDING) ?? "null");
+    if (Array.isArray(raw) && raw.length === BASE_BIND.length && raw.every((t) => typeof t === "string" && ANCHOR_BY_TARGET.has(t as TargetName))) {
+      return raw as string[];
+    }
+  } catch { /* fall through to default */ }
+  return DEFAULT_TARGETS.map(String);
+};
+
 (async function main() {
   try {
     await RAPIER.init();
@@ -86,19 +115,34 @@ const wrapAbs = (d: number): number => Math.abs(Math.atan2(Math.sin(d), Math.cos
       stiffness: DEFAULT_STRING_STIFFNESS, damping: 28, forceCap: DEFAULT_STRING_FORCE_CAP,
     };
 
-    // Standard app menu (gear → slide-over): camera + quality + play-area margin (no audio on /pose).
-    createSettingsMenu({
-      hands,
-      margin: { get: () => cfg.playMargin, set: (m) => { cfg.playMargin = m; } },
-      mount: $("charstage"),
-    });
-
-    const puppet = addPuppet(RAPIER, world, 0, RIGHT_HAND_BINDING);
+    let bindingTargets = loadTargets(); // player's saved finger→part mapping (or the default)
+    const puppet = addPuppet(RAPIER, world, 0, makeBinding(bindingTargets));
     puppet.homeTorso = { x: 0, y: 4.8 };
     puppet.xOffset = 0;
     setPuppetWeight(puppet, DEFAULT_PUPPET_WEIGHT);
     reposePuppet(puppet, puppet.homeTorso);
     const pilot = new Pilot(RAPIER, world, puppet, cfg);
+
+    // Standard app menu (gear → slide-over): camera + quality + play-area margin (no audio on /pose),
+    // plus the finger→part remap. Changing the mapping swaps the binding and drops the puppet to
+    // re-attach with it (the ritual re-runs → respects the settle/anti-seizure hand-off).
+    createSettingsMenu({
+      hands,
+      margin: { get: () => cfg.playMargin, set: (m) => { cfg.playMargin = m; } },
+      remap: {
+        fingers: FINGER_NAMES.map((n, i) => `${i + 1} · ${n}`),
+        targets: REMAP_TARGETS,
+        defaults: DEFAULT_TARGETS.map(String),
+        get: () => bindingTargets,
+        set: (targets) => {
+          bindingTargets = targets;
+          localStorage.setItem(LS_BINDING, JSON.stringify(targets));
+          puppet.binding = makeBinding(targets);
+          pilot.reset(); // drop + re-attach with the new mapping
+        },
+      },
+      mount: $("charstage"),
+    });
 
     // ---- pose-match state ----
     let target: PoseNode[] | null = builtinPose(0);

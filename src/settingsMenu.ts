@@ -35,10 +35,21 @@ export function loadMuted(): boolean { return localStorage.getItem(LS_MUTED) ===
 // Read/write hook for the play-area margin — the scene owns where the value actually lives.
 export interface MarginControl { get(): number; set(m: number): void; }
 
+// Finger→part remap: one dropdown per finger slot to reassign which numbered finger drives which
+// body part. The scene owns the binding rebuild + re-attach behind set(); the menu is pure UI.
+export interface RemapControl {
+  fingers: string[];                             // per-slot finger labels (e.g. "1 · thumb")
+  targets: { value: string; label: string }[];  // selectable body parts
+  defaults: string[];                            // default target per slot (for the reset button)
+  get(): string[];                               // current target value per finger slot
+  set(targets: string[]): void;                  // apply a new mapping (scene rebuilds + re-attaches)
+}
+
 export interface SettingsMenuOpts {
   hands: Hands;              // camera source + quality live-switching
   sound?: boolean;           // show the sound (mute) row — scenes that actually produce audio
   margin?: MarginControl;    // show the play-area margin slider — hand→play-area mapping scenes
+  remap?: RemapControl;      // show the finger→part remap section — single-puppet scenes
   mount?: HTMLElement;       // where the gear + panel attach (default document.body)
 }
 export interface SettingsMenu { destroy(): void; }
@@ -86,6 +97,7 @@ export function createSettingsMenu(opts: SettingsMenuOpts): SettingsMenu {
       <input class="set-margin" type="range" min="0" max="0.49" step="0.01" />
       <div class="settings-hint">inset the camera edge from the play area (bigger = smaller reach box)</div>
     </div>` : ""}
+    ${opts.remap ? `<div class="settings-row set-remap-section"></div>` : ""}
   `;
 
   mount.append(gear, scrim, panel);
@@ -178,6 +190,52 @@ export function createSettingsMenu(opts: SettingsMenuOpts): SettingsMenu {
       localStorage.setItem(LS_MARGIN, m.toFixed(2));
       reflect();
     };
+  }
+
+  // --- finger → part remap (optional) ---
+  if (opts.remap) {
+    const rm = opts.remap;
+    const sec = q<HTMLDivElement>(".set-remap-section")!;
+    const heading = document.createElement("label");
+    heading.textContent = "Finger attachments";
+    sec.appendChild(heading);
+
+    const selects: HTMLSelectElement[] = [];
+    const cur = rm.get();
+    const apply = (): void => rm.set(selects.map((s) => s.value));
+    rm.fingers.forEach((fname, i) => {
+      const row = document.createElement("div");
+      row.className = "set-remap-row";
+      const lab = document.createElement("span");
+      lab.className = "set-remap-finger";
+      lab.textContent = fname;
+      const sel = document.createElement("select");
+      rm.targets.forEach((t) => {
+        const o = document.createElement("option");
+        o.value = t.value; o.textContent = t.label;
+        sel.appendChild(o);
+      });
+      sel.value = cur[i] ?? rm.defaults[i];
+      sel.onchange = apply;
+      selects.push(sel);
+      row.append(lab, sel);
+      sec.appendChild(row);
+    });
+
+    const resetBtn = document.createElement("button");
+    resetBtn.type = "button";
+    resetBtn.className = "settings-reset";
+    resetBtn.textContent = "Reset to default";
+    resetBtn.onclick = (): void => {
+      rm.defaults.forEach((t, i) => { if (selects[i]) selects[i].value = t; });
+      apply();
+    };
+    sec.appendChild(resetBtn);
+
+    const hint = document.createElement("div");
+    hint.className = "settings-hint";
+    hint.textContent = "reassign which finger drives which limb — the puppet re-attaches with the new mapping (raise your hand to re-attach)";
+    sec.appendChild(hint);
   }
 
   // --- open / close ---
