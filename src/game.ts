@@ -3,6 +3,7 @@
 // cut.ts.
 import { Stage, DEFAULT_GRAVITY } from "./engine.ts";
 import { Match, MAX_STRINGS, WINS_NEEDED, type GamePhase } from "./match.ts";
+import { LOADOUTS, DEFAULT_LOADOUT } from "./weapons.ts";
 import { isQualityTier, DEFAULT_QUALITY, type QualityTier } from "./hands.ts";
 import { unlock, audioReady, getMuted, setMuted, sfx } from "./sound.ts";
 import { music } from "./music.ts";
@@ -127,7 +128,7 @@ function setupAudio(stage: Stage, match: Match): () => void {
   // Rising pluck as each string snaps on during the attach ritual.
   stage.onAttach = (_slot, i) => sfx.attach(i);
   // Slice (string cut) + clash (limbs collide) fire from inside the cut rules.
-  match.cutEvents = { onSlice: () => sfx.slice(), onClash: () => sfx.clash() };
+  match.cutEvents = { onSlice: () => sfx.slice(), onClash: () => sfx.clash(), onDisarm: () => sfx.clash() };
 
   // Poll match deltas each frame (cheap): phase stingers, music track, low-time beeps, fight heat.
   let lastPhase: GamePhase | null = null;
@@ -169,6 +170,18 @@ function setupAudio(stage: Stage, match: Match): () => void {
     // the bottom opening now govern the fight, so the fingertips aren't clamped to a half.
     stage.clampHalf = false;
 
+    // Arm both fighters with a disjoint-weapon loadout — the blade reaches past the limb so you can cut
+    // the opponent's strings while your own stay back (safe offense), and its mass makes a whiffed swing
+    // punishable. Cycle archetypes with 'W' to feel out what works (dev aid; proper select comes later).
+    let loadoutIdx = DEFAULT_LOADOUT;
+    const applyLoadout = (): void => {
+      stage.arm(0, LOADOUTS[loadoutIdx].weapons);
+      stage.arm(1, LOADOUTS[loadoutIdx].weapons);
+      const lo = LOADOUTS[loadoutIdx];
+      console.info(`[weapon] ${lo.name} — ${lo.note}`);
+    };
+    applyLoadout();
+
     const match = new Match();
 
     // Initials on a record break — the shared hand keyboard (palm cursor + fist) capped to 3, OR a physical
@@ -181,6 +194,13 @@ function setupAudio(stage: Stage, match: Match): () => void {
       if (e.key === " ") { kb.pushChar(" "); e.preventDefault(); return; } // spacebar → space (respects maxLen)
       if (/^[a-z]$/i.test(e.key)) { kb.pushChar(e.key.toUpperCase()); return; }
       if (e.key.length === 1 && (/[0-9]/.test(e.key) || SYMBOL_CHARS.includes(e.key))) kb.pushChar(e.key);
+    });
+
+    // Dev aid: 'W' cycles the weapon archetype on both fighters (skipped during initials entry, where
+    // 'w' types a letter). The new loadout persists across rounds via each puppet's stored loadout.
+    addEventListener("keydown", (e) => {
+      if (match.awaitingInitials) return;
+      if (e.key === "w" || e.key === "W") { loadoutIdx = (loadoutIdx + 1) % LOADOUTS.length; applyLoadout(); }
     });
 
     setupFullscreen();

@@ -6,7 +6,8 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import {
   buildWorld, buildRig, removePuppet, reposePuppet, setPuppetWeight,
-  DEFAULT_LINEAR_DAMPING, DEFAULT_STRING_FRICTION, DEFAULT_PUPPET_WEIGHT, WORLD_VIEW_HEIGHT,
+  DEFAULT_LINEAR_DAMPING, DEFAULT_STRING_STIFFNESS, DEFAULT_STRING_DAMPING, DEFAULT_STRING_FORCE_CAP,
+  DEFAULT_PUPPET_WEIGHT, WORLD_VIEW_HEIGHT,
   type Puppet, type Vec2,
 } from "./puppet.ts";
 import { RIGS } from "./rigs.ts";
@@ -59,7 +60,8 @@ const gridCenter = (i: number, W: number): Vec2 => ({ x: (i % 5 - 2) * colGap(W)
     const cfg: PilotCfg = {
       worldWidth: renderer.worldWidth,
       playMargin: 0.10, swingRange: 1.0, smoothTime: 0.01,
-      drag: DEFAULT_LINEAR_DAMPING, friction: DEFAULT_STRING_FRICTION,
+      drag: DEFAULT_LINEAR_DAMPING,
+      stiffness: DEFAULT_STRING_STIFFNESS, damping: DEFAULT_STRING_DAMPING, forceCap: DEFAULT_STRING_FORCE_CAP,
     };
 
     // ---- state ----

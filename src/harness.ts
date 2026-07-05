@@ -2,7 +2,7 @@
 // camera/quality pickers, and the fps / hand-count / tracking HUD. All the simulation lives in
 // engine.ts; this file is just the dev UI around it.
 import { Stage, DEFAULT_GRAVITY } from "./engine.ts";
-import { CENTER_STRING_LEN, WORLD_VIEW_HEIGHT } from "./puppet.ts";
+import { CENTER_STRING_LEN, WORLD_VIEW_HEIGHT, type WeaponDef } from "./puppet.ts";
 import { isQualityTier, DEFAULT_QUALITY, type Hands, type QualityTier } from "./hands.ts";
 import { makeCamDraggable } from "./dragCam.ts";
 
@@ -26,10 +26,33 @@ function wireSliders(stage: Stage): void {
   $("grav").oninput = (e) => { stage.gravityY = +(e.target as HTMLInputElement).value; $("gv").textContent = stage.gravityY.toFixed(1); };
   $("damp").oninput = (e) => { stage.setDrag(+(e.target as HTMLInputElement).value); $("dv").textContent = stage.dragVal.toFixed(1); };
   $("weight").oninput = (e) => { stage.setWeight(+(e.target as HTMLInputElement).value); $("wv").textContent = stage.weightVal.toFixed(1); };
-  $("fric").oninput = (e) => { stage.setFriction(+(e.target as HTMLInputElement).value); $("fv").textContent = stage.frictionVal.toFixed(1); };
+  $("stiff").oninput = (e) => { stage.stringStiffness = +(e.target as HTMLInputElement).value; $("stv").textContent = stage.stringStiffness.toFixed(0); };
+  $("sdamp").oninput = (e) => { stage.stringDamping = +(e.target as HTMLInputElement).value; $("sdv").textContent = stage.stringDamping.toFixed(0); };
+  $("scap").oninput = (e) => { stage.stringForceCap = +(e.target as HTMLInputElement).value; $("scv").textContent = stage.stringForceCap.toFixed(0); };
   $("smooth").oninput = (e) => { stage.smoothTime = +(e.target as HTMLInputElement).value; $("sv").textContent = stage.smoothTime.toFixed(2); };
   $("debugChk").onchange = (e) => { stage.debug = (e.target as HTMLInputElement).checked; };
   $("slen").textContent = Math.round((CENTER_STRING_LEN / WORLD_VIEW_HEIGHT) * 100).toString();
+}
+
+// Live weapon tuning: arm both puppets with dual arm-blades and re-arm on any change so reach + mass
+// can be dialled against two live puppets. Unchecking "weapons" strips them (bare-limb cutting).
+const BLADE_COLOR = "#c9ccd2";
+const BLADE_THICKNESS = 0.10;
+function wireWeapons(stage: Stage): void {
+  const apply = (): void => {
+    const armed = ($("armChk") as HTMLInputElement).checked;
+    const reach = +($("wreach") as HTMLInputElement).value;
+    const density = +($("wmass") as HTMLInputElement).value;
+    const defs: WeaponDef[] = armed
+      ? (["lArm", "rArm"] as const).map((target) => ({ name: "blade", target, reach, thickness: BLADE_THICKNESS, density, color: BLADE_COLOR }))
+      : [];
+    stage.arm(0, defs);
+    stage.arm(1, defs);
+  };
+  ($("armChk")).onchange = apply;
+  $("wreach").oninput = (e) => { $("wrv").textContent = (+(e.target as HTMLInputElement).value).toFixed(1); apply(); };
+  $("wmass").oninput = (e) => { $("wmv").textContent = (+(e.target as HTMLInputElement).value).toFixed(1); apply(); };
+  apply(); // arm on load
 }
 
 // Repopulate the camera <select> from the live device list, reflecting the ACTIVE device.
@@ -79,6 +102,7 @@ function wireCameraPickers(hands: Hands): void {
     });
 
     wireSliders(stage);
+    wireWeapons(stage);
     qualSel.value = stage.hands.tier;
     await refreshCameraList(stage.hands);
     wireCameraPickers(stage.hands);

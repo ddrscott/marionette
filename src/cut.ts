@@ -1,12 +1,22 @@
 // Game rules for /game, layered on the shared engine via stage.onFrame. Two ways a marionette goes
 // down:
-//   1. Swipe — swing YOUR puppet's limb (a hand or foot) through the OTHER puppet's strings to cut
-//      them. A hit SEVERS that string at the swiped hinge (both halves dangle — it doesn't vanish),
-//      freeing the part it held. Cutting the head/torso string (or the last intact string) drops the
-//      whole puppet. The limb must actually be MOVING (a swing, not resting contact).
+//   1. Swipe — swing YOUR puppet's WEAPON through the OTHER puppet's strings to cut them. The blade is
+//      bolted PAST the limb tip (puppet.ts armPuppet), so it reaches the opponent's strings while your
+//      body stays back — offense you can land safely. A hit SEVERS that string at the swiped hinge
+//      (both halves dangle — it doesn't vanish), freeing the part it held. Cutting the head/torso
+//      string (or the last intact string) drops the whole puppet; cutting a WEAPON ARM's string DISARMS
+//      that blade (dropped, can't cut) — the middle rung. The blade must be MOVING (a swing, not
+//      resting contact). An UNARMED puppet (e.g. /characters rigs) falls back to bare-limb cutting.
 //   2. Ground-out — if a running puppet's torso comes to rest on the floor, it loses.
 import type { Stage } from "./engine.ts";
-import { cutStringAtSeg, cutAllIntact, FLOOR_TOP, type Capsule, type Puppet } from "./puppet.ts";
+import {
+  cutString, cutAllIntact, disarmWeapon, limbAxisPoint, liveWeaponReach, isArmed, anchorWorld,
+  FLOOR_TOP, type Capsule, type Puppet,
+} from "./puppet.ts";
+
+// How many points to sample along a string (control→limb anchor) when testing a blade against it. The
+// soft strings carry no physics segments, so we hit-test the straight goal line the renderer draws.
+const CUT_SAMPLES = 24;
 
 const CUT_RADIUS = 0.6;       // world units: a limb tip within this of a string segment cuts that string
 const CUT_SPEED = 2.5;        // min limb-tip speed (units/s) for a hit to count as a swipe
@@ -19,8 +29,9 @@ const CLASH_COOLDOWN_MS = 200; // between clash rings so a sustained overlap doe
 // Optional audio (or other) hooks the game subscribes to. Kept as plain callbacks so cut.ts stays
 // engine-only and never imports the audio layer.
 export interface CutEvents {
-  onSlice?: () => void; // a string was just severed
-  onClash?: () => void; // the two puppets' limbs just collided
+  onSlice?: () => void;  // a string was just severed
+  onClash?: () => void;  // the two puppets' limbs just collided
+  onDisarm?: () => void; // a weapon arm's string was cut — the blade dropped
 }
 
 export interface RulesState {
@@ -38,7 +49,19 @@ function tipOf(part: Capsule): { x: number; y: number } {
   return { x: p.x + part.half * Math.sin(th), y: p.y - part.half * Math.cos(th) };
 }
 function speedOf(part: Capsule): number { const v = part.body.linvel(); return Math.hypot(v.x, v.y); }
-const intactCount = (p: Puppet): number => p.strings.reduce((n, s) => n + (s.cutJoint === null ? 1 : 0), 0);
+const intactCount = (p: Puppet): number => p.strings.reduce((n, s) => n + (s.cut ? 0 : 1), 0);
+
+// The cutting point of an attacking limb: the BLADE tip when armed (limb tip + weapon reach), else the
+// bare limb tip. So an armed puppet cuts from disjoint reach; an unarmed one cuts as it always did.
+const attackPoint = (part: Capsule): { x: number; y: number } => limbAxisPoint(part, part.half + liveWeaponReach(part));
+
+// The limbs that can actually cut: an ARMED puppet cuts ONLY with its live weapons (positioning the
+// blade IS the skill, and bare legs don't slice). A puppet with NO live weapon falls back to bare-limb
+// cutting — that's both the /characters (unarmed rigs) path AND, intentionally, a FULLY-disarmed
+// fighter: it keeps a desperate, short-reach offense so a disarm is a big disadvantage, not an instant
+// loss (the poke→disarm→finish ladder would collapse if disarm meant "can never cut again").
+const attackersOf = (p: Puppet): Capsule[] =>
+  isArmed(p) ? p.parts.filter((c) => c.weapon && !c.weapon.disarmed) : p.parts.filter((c) => c.body !== p.torso);
 
 function torsoGrounded(puppet: Puppet): boolean {
   const torso = puppet.parts.find((c) => c.body === puppet.torso);
@@ -47,7 +70,7 @@ function torsoGrounded(puppet: Puppet): boolean {
 }
 
 function kill(stage: Stage, slot: 0 | 1, cs: RulesState): void {
-  cutAllIntact(stage.world, stage.puppets[slot]); // sever any remaining strings -> full dangling collapse
+  cutAllIntact(stage.puppets[slot]); // sever any remaining strings -> full dangling collapse
   cs.dead[slot] = true;
 }
 
@@ -100,23 +123,34 @@ export function updateRules(stage: Stage, cs: RulesState, now: number, ev?: CutE
     if (now - cs.lastCutAt[a] < CUT_COOLDOWN_MS) continue;
 
     const atk = stage.puppets[a];
-    const limbs = atk.parts.filter((c) => c.body !== atk.torso); // arms + legs are the weapons
+    const limbs = attackersOf(atk); // the live weapons (armed), or bare limbs (unarmed fallback)
     let done = false;
     for (const limb of limbs) {
       if (speedOf(limb) < CUT_SPEED) continue; // must be swinging
-      const tip = tipOf(limb);
+      const tip = attackPoint(limb); // blade tip (armed) or bare limb tip
       for (const s of vic.strings) {
-        if (s.cutJoint !== null) continue; // already severed
-        let hitSeg = -1;
-        for (let k = 0; k < s.segs.length; k++) {
-          const c = s.segs[k].translation();
-          if (Math.hypot(tip.x - c.x, tip.y - c.y) < CUT_RADIUS) { hitSeg = k; break; }
+        if (s.cut) continue; // already severed
+        // Sample the straight goal line (fingertip control → limb anchor) — the line the renderer draws —
+        // and cut if the blade tip passes within CUT_RADIUS of any point on it.
+        const top = s.control.translation();
+        const end = anchorWorld(s.body, s.bodyAnchor);
+        let hit: { x: number; y: number } | null = null;
+        for (let k = 0; k <= CUT_SAMPLES; k++) {
+          const t = k / CUT_SAMPLES;
+          const px = top.x + (end.x - top.x) * t, py = top.y + (end.y - top.y) * t;
+          if (Math.hypot(tip.x - px, tip.y - py) < CUT_RADIUS) { hit = { x: px, y: py }; break; }
         }
-        if (hitSeg < 0) continue;
-        const target = cutStringAtSeg(stage.world, vic, s.slot, hitSeg);
+        if (!hit) continue;
+        const target = cutString(vic, s.slot, hit);
         cs.lastCutAt[a] = now;
         ev?.onSlice?.();
-        if (target === "torso" || intactCount(vic) === 0) kill(stage, v, cs); // head cut / last string = drop
+        if (target === "torso" || intactCount(vic) === 0) {
+          kill(stage, v, cs); // head cut / last string = drop
+        } else if (target) {
+          // cutting a weapon arm's string drops its blade (disarm) — an earned edge, not a kill
+          const part = vic.parts.find((c) => c.body === vic.partByTarget[target]);
+          if (part && disarmWeapon(stage.world, part)) ev?.onDisarm?.();
+        }
         done = true;
         break;
       }

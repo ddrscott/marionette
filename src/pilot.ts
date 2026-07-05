@@ -10,8 +10,8 @@ import { stageX, stageY } from "./control.ts";
 import type { Landmark } from "./hands.ts";
 import {
   FINGERTIPS, FLOOR_TOP, WORLD_VIEW_HEIGHT,
-  reposePuppet, attachStringForSlot, detachAllStrings, stillStrings, stillParts,
-  setDamping, setStringFriction, DEFAULT_ANGULAR_DAMPING, type Puppet,
+  reposePuppet, attachStringForSlot, detachAllStrings, stillParts, driveStrings,
+  setDamping, DEFAULT_ANGULAR_DAMPING, type Puppet,
 } from "./puppet.ts";
 
 // ---- finger→world mapping band (mirrors engine.ts) ----
@@ -30,7 +30,6 @@ const ATTACH_ORDER = [2, 0, 4, 1, 3]; // keystone (middle) first, then hands, th
 const SETTLE_MS = 700;
 const SETTLE_LINEAR_DAMPING = 5;
 const SETTLE_ANGULAR_DAMPING = 8;
-const SETTLE_FRICTION = 40;
 const easeOut = (t: number): number => 1 - (1 - t) * (1 - t);
 
 // Unity SmoothDamp — velocity-continuous smoothing so a jumping target eases without a whip.
@@ -62,7 +61,10 @@ export interface PilotCfg {
   swingRange: number;
   smoothTime: number;
   drag: number;
-  friction: number;
+  // Soft goal-drive string tunables (read every frame by driveStrings).
+  stiffness: number;
+  damping: number;
+  forceCap: number;
 }
 
 export class Pilot {
@@ -145,12 +147,9 @@ export class Pilot {
             this.attached++;
           }
         }
-        stillStrings(p); // calm the chains each frame so they don't build swing energy while pinned
         if (this.attached >= ATTACH_ORDER.length && now - this.attachT0 >= ATTACH_ORDER.length * ATTACH_STRING_MS) {
-          stillParts(p);
-          stillStrings(p);
+          stillParts(p); // hand over at rest — strings captured at the held pose carry ~0 force, no spasm
           setDamping(p, SETTLE_LINEAR_DAMPING, SETTLE_ANGULAR_DAMPING);
-          setStringFriction(p, SETTLE_FRICTION);
           this.settleT0 = now;
           this.primed = false;
           this.phase = "running";
@@ -161,6 +160,7 @@ export class Pilot {
         if (absent) { this.reset(); break; }
         this.applySettle(now);
         if (this.present) { this.smoothControls(dt); this.drive(); }
+        driveStrings(p, this.cfg.stiffness, this.cfg.damping, this.cfg.forceCap, dt); // the capped goal force
         break;
     }
   }
@@ -204,7 +204,6 @@ export class Pilot {
     const t = (now - this.settleT0) / SETTLE_MS;
     if (t >= 1) {
       setDamping(this.puppet, this.cfg.drag, DEFAULT_ANGULAR_DAMPING);
-      setStringFriction(this.puppet, this.cfg.friction);
       this.settleT0 = -1;
       return;
     }
@@ -214,12 +213,11 @@ export class Pilot {
       this.cfg.drag + (SETTLE_LINEAR_DAMPING - this.cfg.drag) * k,
       DEFAULT_ANGULAR_DAMPING + (SETTLE_ANGULAR_DAMPING - DEFAULT_ANGULAR_DAMPING) * k,
     );
-    setStringFriction(this.puppet, this.cfg.friction + (SETTLE_FRICTION - this.cfg.friction) * k);
   }
 
   // Cut all strings and return to the waiting/prompt state at the neutral home pose.
   reset(): void {
-    detachAllStrings(this.world, this.puppet);
+    detachAllStrings(this.puppet);
     reposePuppet(this.puppet, this.puppet.homeTorso);
     setDamping(this.puppet, this.cfg.drag, DEFAULT_ANGULAR_DAMPING);
     this.phase = "waiting";

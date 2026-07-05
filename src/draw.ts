@@ -1,5 +1,5 @@
 import type RAPIER_NS from "@dimforge/rapier3d-compat";
-import { WORLD_VIEW_HEIGHT, FLOOR_TOP, WALL_OPENING, WALL_HALF_W, FINGERTIPS, type Puppet, type PuppetString, type Vec2 } from "./puppet.ts";
+import { WORLD_VIEW_HEIGHT, FLOOR_TOP, WALL_OPENING, WALL_HALF_W, FINGERTIPS, limbAxisPoint, type Puppet, type PuppetString, type Vec2 } from "./puppet.ts";
 import { HAND_CONNECTIONS, type Landmark } from "./hands.ts";
 
 // Duotone team colours (must match style.css `--rust` / `--teal`). Colour is carried by the PLAYER,
@@ -53,6 +53,9 @@ function localToWorld(body: RAPIER_NS.RigidBody, a: Vec2): Vec2 {
   return { x: p.x + a.x * c - a.y * s, y: p.y + a.x * s + a.y * c };
 }
 
+// One capsule of a pose-target silhouette (a puppet part at its goal transform, enlarged for drawing).
+export interface PoseSilPart { x: number; y: number; angle: number; half: number; rad: number; }
+
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   scale = 80; // px per world unit; recomputed on resize from the FIXED world view height
@@ -81,20 +84,6 @@ export class Renderer {
   private sy(y: number): number { return this.canvas.height - y * this.scale; }
   private lineTo(p: Vec2): void { this.ctx.lineTo(this.sx(p.x), this.sy(p.y)); }
   private moveTo(p: Vec2): void { this.ctx.moveTo(this.sx(p.x), this.sy(p.y)); }
-
-  // Stroke a smooth curve through world-space points so a chain's segment nodes read as one
-  // continuous, folding string instead of visible links.
-  private smoothPath(pts: Vec2[]): void {
-    const { ctx } = this;
-    this.moveTo(pts[0]);
-    if (pts.length < 3) { for (let i = 1; i < pts.length; i++) this.lineTo(pts[i]); return; }
-    let i = 1;
-    for (; i < pts.length - 2; i++) {
-      const mx = (pts[i].x + pts[i + 1].x) / 2, my = (pts[i].y + pts[i + 1].y) / 2;
-      ctx.quadraticCurveTo(this.sx(pts[i].x), this.sy(pts[i].y), this.sx(mx), this.sy(my));
-    }
-    ctx.quadraticCurveTo(this.sx(pts[i].x), this.sy(pts[i].y), this.sx(pts[i + 1].x), this.sy(pts[i + 1].y));
-  }
 
   // Clear the canvas + draw the shared floor band. Call once per frame, before drawPuppet().
   clear(): void {
@@ -132,34 +121,38 @@ export class Renderer {
   drawPuppet(rig: Puppet): void {
     const { ctx } = this;
 
-    // (1) strings — each a smooth curve from its finger control point through the chain to the part.
-    // Coloured by the puppet's TEAM (rust = left / P1, teal = right / P2), shared by all five strings.
+    // (1) strings — each a light line from its finger control point (the GOAL) to the part, pointing at
+    // the fingertip every frame. Coloured by the puppet's TEAM (rust = left / P1, teal = right / P2). The
+    // soft goal-drive carries no physics chain, so we draw the straight goal line with a gentle sag when
+    // it's slack (anchor closer than the rest length). A CUT string drops its two ends as limp stubs.
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     const col = teamColor(rig.xOffset);
     rig.strings.forEach((s) => {
       const top = s.control.translation();
-      const controlPt: Vec2 = { x: top.x, y: top.y };
-      const segPts: Vec2[] = s.segs.map((seg) => { const c = seg.translation(); return { x: c.x, y: c.y }; });
       const end = localToWorld(s.body, s.bodyAnchor);
-      const stroke = (pts: Vec2[]) => {
-        if (pts.length < 2) return;
-        ctx.strokeStyle = col;
-        ctx.lineWidth = 1.6;
-        ctx.globalAlpha = 0.85;
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1.6;
+      ctx.globalAlpha = 0.85;
+      if (!s.cut) {
+        const dx = end.x - top.x, dy = end.y - top.y;
+        const dist = Math.hypot(dx, dy);
+        const sag = Math.max(0, s.nominalLen - dist) * 0.5; // droop only while slack; straight when taut
+        const midX = (top.x + end.x) / 2, midY = (top.y + end.y) / 2 - sag;
         ctx.beginPath();
-        this.smoothPath(pts);
+        this.moveTo({ x: top.x, y: top.y });
+        ctx.quadraticCurveTo(this.sx(midX), this.sy(midY), this.sx(end.x), this.sy(end.y));
         ctx.stroke();
-        ctx.globalAlpha = 1;
-      };
-      if (s.cutJoint === null) {
-        stroke([controlPt, ...segPts, end]);
       } else {
-        // severed at the hinge above seg[cutJoint]: upper half hangs from the control, lower from the part.
-        stroke([controlPt, ...segPts.slice(0, s.cutJoint)]);
-        stroke([...segPts.slice(s.cutJoint), end]);
+        // severed: two limp stubs dangling straight down from the fingertip and from the limb anchor.
+        const stub = Math.min(0.8, s.nominalLen * 0.35);
+        ctx.beginPath();
+        this.moveTo({ x: top.x, y: top.y }); this.lineTo({ x: top.x, y: top.y - stub });
+        this.moveTo(end); this.lineTo({ x: end.x, y: end.y - stub });
+        ctx.stroke();
       }
-      // attach dot on the puppet (the body end stays attached to the lower half) — world-sized
+      ctx.globalAlpha = 1;
+      // attach dot on the puppet (the string's fixed end on the limb) — world-sized
       ctx.fillStyle = col;
       ctx.beginPath();
       ctx.arc(this.sx(end.x), this.sy(end.y), Math.max(2, 0.05 * this.scale), 0, Math.PI * 2);
@@ -178,6 +171,28 @@ export class Renderer {
       ctx.stroke();
     }
 
+    // (2b) weapons — a blade bolted PAST the limb tip (disjoint reach). Drawn in the weapon's own steel
+    // colour so it reads as a held tool, not a limb; a slim highlight down the spine gives it an edge.
+    // A disarmed blade is gone (its collider was removed).
+    for (const part of rig.parts) {
+      const w = part.weapon;
+      if (!w || w.disarmed) continue;
+      const base = limbAxisPoint(part, part.half);
+      const tip = limbAxisPoint(part, part.half + w.def.reach);
+      ctx.lineCap = "round";
+      ctx.strokeStyle = w.def.color;
+      ctx.lineWidth = Math.max(2, w.def.thickness * 2 * this.scale);
+      ctx.beginPath();
+      this.moveTo(base);
+      this.lineTo(tip);
+      ctx.stroke();
+      // bright tip so the reach (the thing that matters for spacing) is easy to read
+      ctx.fillStyle = "#eef0f3";
+      ctx.beginPath();
+      ctx.arc(this.sx(tip.x), this.sy(tip.y), Math.max(2, w.def.thickness * this.scale), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     // (3) finger control points — coloured discs numbered 1..5 (the puppeteer's fingertips on stage).
     // Drawn per ATTACHED string (by finger slot), so during the attach ritual discs pop in one at a
     // time with their strings, and a detached/waiting puppet shows none.
@@ -187,7 +202,7 @@ export class Renderer {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     rig.strings.forEach((s) => {
-      if (s.cutJoint !== null) return; // severed string: no live control point
+      if (s.cut) return; // severed string: no live control point
       const t = s.control.translation();
       const px = this.sx(t.x), py = this.sy(t.y);
       ctx.fillStyle = col;
@@ -334,15 +349,51 @@ export class Renderer {
     ctx.textBaseline = "alphabetic";
   }
 
-  // Debug overlay: raw physics segments (every chain link + joint) + each chain's measured summed
-  // length vs nominalLen (stretch%). For a rigid chain stretch stays ~0 however it folds.
+  // A pose target as a "chalk outline" silhouette (the /pose game): the puppet's own capsule parts at
+  // the goal transforms, enlarged a touch, filled BLACK with a WHITE outline — the shape you nestle the
+  // live puppet into. A part's outline turns GREEN once it's matched. `parts` are world-space
+  // {x,y,angle,half,rad} index-aligned with the puppet; `hold` (0..1) draws the closing lock arc.
+  // Trick for a clean union: stroke every part's OUTLINE (thick) first, then every part's BLACK fill
+  // (thinner) on top — the fills cover internal seams so only the outer rim shows.
+  drawPoseTarget(parts: PoseSilPart[], inZone: boolean[], rootIndex = 0, hold = 0): void {
+    const { ctx } = this;
+    ctx.lineCap = "round";
+    const ends = (p: PoseSilPart): [Vec2, Vec2] => {
+      const c = Math.cos(p.angle), s = Math.sin(p.angle);
+      return [{ x: p.x - p.half * s, y: p.y + p.half * c }, { x: p.x + p.half * s, y: p.y - p.half * c }];
+    };
+    // outline layer (white, green where matched)
+    parts.forEach((p, i) => {
+      const [e1, e2] = ends(p);
+      ctx.strokeStyle = inZone[i] ? "#7bd88f" : "#f2f2f2";
+      ctx.lineWidth = p.rad * 2 * this.scale + Math.max(3, 0.05 * this.scale);
+      ctx.beginPath(); this.moveTo(e1); this.lineTo(e2); ctx.stroke();
+    });
+    // black fill on top (smaller, so the outline reads as a rim and seams disappear)
+    ctx.strokeStyle = "#0b0b0d";
+    parts.forEach((p) => {
+      const [e1, e2] = ends(p);
+      ctx.lineWidth = p.rad * 2 * this.scale;
+      ctx.beginPath(); this.moveTo(e1); this.lineTo(e2); ctx.stroke();
+    });
+    // hold-to-lock arc around the root part
+    if (hold > 0) {
+      const r = parts[rootIndex];
+      const px = this.sx(r.x), py = this.sy(r.y), rad = (r.half + r.rad) * this.scale;
+      ctx.strokeStyle = "#7bd88f";
+      ctx.lineWidth = Math.max(3, 0.06 * this.scale);
+      ctx.beginPath(); ctx.arc(px, py, rad, -Math.PI / 2, -Math.PI / 2 + hold * Math.PI * 2); ctx.stroke();
+    }
+  }
+
+  // Debug overlay: raw physics bodies (puppet parts + internal joints) + each string's current
+  // chord / rest length (stretch%). With the soft goal-drive there are no chain segments — a string's
+  // stretch is how far the limb anchor lags past the captured rest length as the capped spring loads.
   drawDebug(world: RAPIER_NS.World, strings: PuppetString[]): void {
     const { ctx } = this;
 
-    // Batch ALL physics segments into ONE path + one stroke. (Per-segment beginPath/stroke is the
-    // canvas perf killer — at ~hundreds of segments × 2 puppets it dominated the frame and pinned
-    // fps to 30.) We drop Rapier's per-vertex colours for one uniform debug colour; the shapes still
-    // read fine, and it's ~1 draw call instead of hundreds.
+    // Batch ALL physics colliders into ONE path + one stroke (per-shape beginPath/stroke is a canvas
+    // perf killer). We drop Rapier's per-vertex colours for one uniform debug colour.
     const buf = world.debugRender();
     const v = buf.vertices;
     ctx.strokeStyle = "rgba(120,180,180,0.5)";
@@ -358,23 +409,21 @@ export class Renderer {
     ctx.textBaseline = "top";
     let ty = 8;
     ctx.fillStyle = TEAM_TEAL;
-    ctx.fillText("physics chains — len / nominal  (stretch%)", 8, ty); ty += 15;
+    ctx.fillText("soft strings — chord / rest  (stretch%)", 8, ty); ty += 15;
     let maxStretch = -Infinity;
     strings.forEach((s) => {
       const top = s.control.translation();
-      const nodes: Vec2[] = [{ x: top.x, y: top.y }];
-      for (const seg of s.segs) { const c = seg.translation(); nodes.push({ x: c.x, y: c.y }); }
-      nodes.push(localToWorld(s.body, s.bodyAnchor));
-      let len = 0;
-      for (let k = 1; k < nodes.length; k++) len += Math.hypot(nodes[k].x - nodes[k - 1].x, nodes[k].y - nodes[k - 1].y);
-      const stretch = ((len - s.nominalLen) / s.nominalLen) * 100;
+      const end = localToWorld(s.body, s.bodyAnchor);
+      const chord = Math.hypot(end.x - top.x, end.y - top.y);
+      const stretch = ((chord - s.nominalLen) / s.nominalLen) * 100;
       maxStretch = Math.max(maxStretch, stretch);
-      ctx.fillStyle = stretch > 0.3 ? TEAM_DANGER : "#9a9aa2";
-      ctx.fillText(`${s.name.padEnd(13)} ${len.toFixed(2)} / ${s.nominalLen.toFixed(2)}  ${stretch >= 0 ? "+" : ""}${stretch.toFixed(2)}%`, 8, ty);
+      const label = s.cut ? "CUT" : `${stretch >= 0 ? "+" : ""}${stretch.toFixed(1)}%`;
+      ctx.fillStyle = s.cut ? "#6a6a72" : stretch > 8 ? TEAM_DANGER : "#9a9aa2";
+      ctx.fillText(`${s.name.padEnd(13)} ${chord.toFixed(2)} / ${s.nominalLen.toFixed(2)}  ${label}`, 8, ty);
       ty += 13;
     });
-    ctx.fillStyle = maxStretch > 0.3 ? TEAM_DANGER : TEAM_TEAL;
-    ctx.fillText(`max stretch: ${maxStretch >= 0 ? "+" : ""}${maxStretch.toFixed(2)}%`, 8, ty + 2);
+    ctx.fillStyle = maxStretch > 8 ? TEAM_DANGER : TEAM_TEAL;
+    ctx.fillText(`max stretch: ${maxStretch >= 0 ? "+" : ""}${maxStretch.toFixed(1)}%`, 8, ty + 2);
     ctx.textBaseline = "alphabetic";
   }
 }

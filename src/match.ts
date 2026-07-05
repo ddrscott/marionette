@@ -24,7 +24,7 @@ const FIGHT_FLASH_MS = 900;       // "FIGHT!" flash at the start of a round
 const ROUNDEND_MS = 2800;         // pause after a round (let the loser collapse)
 const RESTART_HOLD_MS = 1500;     // at match end, hands-off this long before a new match can start
 
-const intact = (p: Puppet): number => p.strings.reduce((n, s) => n + (s.cutJoint === null ? 1 : 0), 0);
+const intact = (p: Puppet): number => p.strings.reduce((n, s) => n + (s.cut ? 0 : 1), 0);
 
 // All-time longest win streak, persisted with the holder's initials (arcade high score).
 const REC_KEY = "handbattle.streak.record";
@@ -68,7 +68,7 @@ export class Match {
   private bothRunning(s: Stage): boolean { return s.slotStates[0].phase === "running" && s.slotStates[1].phase === "running"; }
   // "down" = killed by a cut/ground-out, OR no longer running (hand left, puppet fell) during a fight.
   private isDown(s: Stage, i: 0 | 1): boolean { return this.rules.dead[i] || s.slotStates[i].phase !== "running"; }
-  private resetRound(s: Stage): void { s.resetToWaiting(0); s.resetToWaiting(1); this.rules = makeRulesState(); }
+  private resetRound(s: Stage): void { s.resetToWaiting(0); s.resetToWaiting(1); s.rearm(); this.rules = makeRulesState(); }
 
   update(stage: Stage, now: number): void {
     if (this.phaseT === 0) this.phaseT = now;

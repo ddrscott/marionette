@@ -10,6 +10,11 @@ const entry = (p: string): string => fileURLToPath(new URL(p, import.meta.url));
 // itself `importScripts` a vendored CJS bundle (no ESM import), so the same `{ type: "classic" }`
 // spawn works in dev and build; `worker.format = "iife"` keeps the BUILT chunk a classic script.
 export default defineConfig({
+  // Allow the shared cloudflared dev-tunnel host (dev-<port>.dataturd.com) so the app can be reached
+  // over HTTPS — needed for webcam access (getUserMedia) on phones / other devices, not just localhost.
+  server: {
+    allowedHosts: [".dataturd.com"],
+  },
   worker: {
     format: "iife",
   },
@@ -19,6 +24,7 @@ export default defineConfig({
         main: entry("./index.html"),
         harness: entry("./harness/index.html"),
         game: entry("./game/index.html"),
+        pose: entry("./pose/index.html"),
         keyboard: entry("./keyboard/index.html"),
         characters: entry("./characters/index.html"),
       },

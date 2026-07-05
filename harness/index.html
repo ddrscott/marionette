@@ -63,15 +63,34 @@
         <input id="weight" type="range" min="1" max="12" step="0.5" value="4" />
       </div>
       <div class="row">
-        <label>string friction <span class="val" id="fv">8.0</span> <span class="dim">(joint friction; low = floppy, high = stiff/settles but laggy)</span></label>
-        <input id="fric" type="range" min="0" max="20" step="0.5" value="8" />
+        <label>string stiffness <span class="val" id="stv">200</span> <span class="dim">(goal spring k: pull accel per unit of stretch; higher = tighter follow)</span></label>
+        <input id="stiff" type="range" min="20" max="600" step="10" value="200" />
+      </div>
+      <div class="row">
+        <label>string damping <span class="val" id="sdv">18</span> <span class="dim">(damping along the string; low = bouncy/rubberband, high = sluggish)</span></label>
+        <input id="sdamp" type="range" min="0" max="60" step="1" value="18" />
+      </div>
+      <div class="row">
+        <label>string force cap <span class="val" id="scv">60</span> <span class="dim">(the no-rip cap: max pull accel, mass-scaled; must exceed gravity to hold up, stay low to never rip)</span></label>
+        <input id="scap" type="range" min="20" max="200" step="5" value="60" />
       </div>
       <div class="row">
         <label>smoothing <span class="val" id="sv">0.01</span> <span class="dim">(glides controls between detections; 0 = snap/jumpy, high = smooth but laggy)</span></label>
         <input id="smooth" type="range" min="0" max="0.2" step="0.01" value="0.01" />
       </div>
       <div class="row">
-        <label><input id="debugChk" type="checkbox" /> debug: physics lines <span class="dim">(raw engine segments + stretch%; costs fps)</span></label>
+        <label><input id="armChk" type="checkbox" checked /> weapons <span class="dim">(disjoint blades on both arms &mdash; reach past the limb + mass = commitment)</span></label>
+      </div>
+      <div class="row">
+        <label>weapon reach <span class="val" id="wrv">1.4</span> <span class="dim">(blade length past the limb tip; the safe-offense range)</span></label>
+        <input id="wreach" type="range" min="0.4" max="3.5" step="0.1" value="1.4" />
+      </div>
+      <div class="row">
+        <label>weapon mass <span class="val" id="wmv">5.0</span> <span class="dim">(blade density; heavier = more commitment, a whiffed swing is punishable)</span></label>
+        <input id="wmass" type="range" min="1" max="12" step="0.5" value="5" />
+      </div>
+      <div class="row">
+        <label><input id="debugChk" type="checkbox" /> debug: physics lines <span class="dim">(raw part colliders + string stretch%; costs fps)</span></label>
       </div>
 
       <div class="note">

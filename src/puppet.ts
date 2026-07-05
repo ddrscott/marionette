@@ -16,34 +16,27 @@ export const CONTROL_BASE_Y = 11; // default height of the finger control points
 export const DEFAULT_LINEAR_DAMPING = 0.4;
 export const DEFAULT_ANGULAR_DAMPING = 1.0;
 
-// STRING FRICTION — damping on the chain SEGMENTS, decoupled from the puppet's fall. The heavy
-// segments otherwise wobble in long S-curves and take ~20s to rest; this is the "joint friction"
-// (per-link velocity/spin drag) that calms them. Higher = stiffer/settles faster; too high and the
-// strings lag the control (sluggish). Live via the string-friction slider. Segment angular damping =
-// friction * STRING_ANG_RATIO (bending needs more than translation).
-export const DEFAULT_STRING_FRICTION = 8;
-const STRING_ANG_RATIO = 2;
+// SOFT GOAL-DRIVE STRINGS (capped-force) — the string is NOT a rigid chain. Each frame a CAPPED,
+// DAMPED spring force drags the limb's string anchor toward its fingertip GOAL (the control point):
+// it pulls only when stretched past the captured rest length (a rope, never a strut) and the pull is
+// HARD-CAPPED. Because the cap sits BELOW the strength of the puppet's internal ball joints (which
+// stay rigid), a fast/far fingertip can NEVER deliver enough pull to tear a limb out of its socket —
+// the limb lags at the cap and follows, it can't rip. This replaces the old rigid finger→limb chain +
+// `JointData.rope` (an unbounded coupling that ripped limbs off). Live via the harness sliders.
+// These gains are MASS-NORMALIZED (acceleration units): the force applied is part.mass × the clamped
+// value below. That makes the pull auto-scale with the part it drives — a light limb (mass ~0.17) and
+// the heavy torso (mass ~1.5) and an 8× armed limb all accelerate the SAME toward their goal, so a
+// single global cap can't launch the light limbs while barely holding the heavy ones (the trap a raw
+// force cap falls into). "No rip" holds because the pull ACCELERATION is bounded, so the impulse the
+// ball joint must resist is bounded to ~mass × cap — proportional to the limb, which the joint holds.
+export const DEFAULT_STRING_STIFFNESS = 200; // k: pull accel (u/s²) per world-unit of stretch past nominalLen
+export const DEFAULT_STRING_DAMPING = 18;    // c: along-string damping (1/s) — kills bounce/rubberband
+export const DEFAULT_STRING_FORCE_CAP = 60;  // the no-rip cap: max pull accel (u/s²); >gravity so it holds up
 
 export const CENTER_STRING_LEN = 6.2; // head string length -> 51.7% of a 12u view (> 50% required)
 
-// Strings are CHAINS of stiff segment links (spherical joints): inextensible (no rubberband) but
-// free to FOLD at every hinge, so they drape/go-slack and never snap-bounce. `STRING_SLACK` 1.0 =>
-// chain length is exactly the straight-line span, so the string is straight/taut at the rest pose.
-const SEG_COUNT = 20;
-const SEG_RAD = 0.1;
-// Thick, heavy links — the strings read as substantial ROPE, not thread. NOTE: `SEG_RAD = 0.4` is a
-// DELIBERATE thick rope (not the earlier thin 0.04). Mass scales with radius², so at `SEG_DENSITY 2.0`
-// over 20 links a string weighs on the order of ~16 mass units — it FAR outweighs the limbs it pulls
-// (arm ≈ 0.17 at weight 4×). So this rig intentionally runs "string-dominant": the heavy rope drapes
-// with visible weight and sag, tamed via the string-friction slider rather than kept lighter than the
-// limbs. (If the puppet ever feels dragged around by its own strings, that mass ratio is why — drop
-// SEG_RAD back toward 0.04 to make the strings light and taut again.)
-const SEG_DENSITY = 1.2;
-const STRING_SLACK = 1.0;
-
 // Collision filtering (high 16 = membership, low 16 = mask of groups it collides with).
 const PUPPET_GROUP = 0x00010002; // member group 0, collides with group 1 (floor)
-const STRING_GROUP = 0x00010002; // member group 0, collides with the floor (bit1) but not the puppet or other segments
 const FLOOR_GROUP  = 0x00020001; // member group 1, collides with group 0 (puppet)
 
 // Floor: static shelf near the bottom so a lowered control rests the puppet on-screen.
@@ -64,21 +57,41 @@ const WALL_TOP = 200;                           // effectively infinite (the vie
 // Puppet weight multiplier (heavier parts keep more tension on the strings). Live via setPuppetWeight.
 export const DEFAULT_PUPPET_WEIGHT = 4;
 
-// Solver passes per step. The chains USED to need 48 to stay rigid (the iterative impulse solver
-// spreads length error across all 21 hinges, so few passes = rubberband). Now the parallel rope joint
-// (attachStringForSlot) carries the taut-length cap in ONE constraint that converges immediately, so
-// the chain only has to hold drape/hinge shape. Headless sweep (tools/rope-joint.ts): WITH the rope
-// joint, stretch stays hard-capped at chord/nominalLen = 1.000 from 48 down to 8 iters, and the
-// anti-seizure metric is unchanged 48→16 (peak ~0.50 u/s, 6/60 spasms) — only creeping at 8. 16 keeps
-// a 2× margin above that and cuts solver cost ~3×. (Chain-only at 16 would rubberband to ~1.03.)
+// Solver passes per step. With the soft goal-drive model there are NO string chains — the solver only
+// has to hold each puppet's handful of internal ball joints (limbs↔torso) rigid against the capped
+// string forces + gravity. That's a light constraint load, so 16 passes is ample (and keeps the ball
+// joints firmly satisfied, which is WHY a capped pull can't visibly separate a limb from its socket).
 const SOLVER_ITERATIONS = 16;
 
 export interface Vec2 { x: number; y: number; }
+
+// ---- disjoint weapons (the footsies layer) ----------------------------------------------------
+// A weapon is a rigid capsule collider bolted onto a limb body, extending PAST its tip along the
+// limb's local axis. It gives the puppet cutting REACH beyond its own strings (so you can threaten
+// the opponent's strings while your body stays back — the "safe offense" the game lacked), and its
+// MASS is the commitment: a heavy blade can't be instantly recalled, so a whiffed swing leaves the
+// arm extended and its string exposed to a punish. Cutting a weapon-arm's string DISARMS it (the
+// collider is removed) — the middle rung between poking and the kill. See cut.ts.
+export interface WeaponDef {
+  name: string;
+  target: TargetName; // which part holds it (the "weapon arm")
+  reach: number;      // how far past the limb's tip the blade extends (world units)
+  thickness: number;  // blade collider radius
+  density: number;    // mass per volume — the commitment weight
+  color: string;
+}
+export interface Weapon {
+  def: WeaponDef;
+  collider: RAPIER_NS.Collider; // the compound collider on the limb body; removed on disarm
+  disarmed: boolean;            // true once the weapon-arm string is cut (blade dropped)
+}
+
 export interface Capsule {
   body: RAPIER_NS.RigidBody; half: number; rad: number; color: string;
   collider: RAPIER_NS.Collider; baseDensity: number; // for the live weight slider (setPuppetWeight)
   neutral: Vec2; // this part's home offset from the torso center — the neutral pose reposePuppet resets to
   neutralRot: number; // this part's home z-rotation (radians) — a canted arm / horizontal body / coil link
+  weapon?: Weapon;    // a bolted-on blade (disjoint reach), if this part is a weapon arm — see armPuppet
 }
 
 // The humanoid part ids, plus ANY string id so bespoke rigs (see rigs.ts / buildRig) can name their
@@ -86,25 +99,23 @@ export interface Capsule {
 // keeps literal-checked names. `(string & {})` preserves the literal autocomplete but widens to string.
 export type TargetName = "torso" | "lArm" | "rArm" | "lLeg" | "rLeg" | (string & {});
 
-// One string: a chain from a finger control point (its top) to a body part.
+// One string: a capped, damped spring from a finger control point (its top / GOAL) to a body part.
+// There is NO physics chain — the load path is the per-frame goal force (driveStringGoal). The string
+// is drawn as a light line pointing at the fingertip.
 export interface PuppetString {
   name: string;
-  control: RAPIER_NS.RigidBody; // the kinematic finger control point — the string's top
+  control: RAPIER_NS.RigidBody; // the kinematic finger control point — the string's top / GOAL point
   body: RAPIER_NS.RigidBody;    // the part the string ends on
   target: TargetName;           // which part — so a hand can drive a control BY TARGET (handedness)
-  bodyAnchor: Vec2;             // body-local
-  segs: RAPIER_NS.RigidBody[];  // the chain links, control-side -> body-side
-  joints: RAPIER_NS.ImpulseJoint[]; // SEG_COUNT+1 hinges; joints[k] is above seg k (see buildChain)
-  // Direct control->part max-distance (rope) impulse joint running IN PARALLEL with the chain. It does
-  // nothing while the string is slack (the chain drapes) but becomes the single load-bearing constraint
-  // the instant the string goes taut — one constraint converges immediately instead of stretching the
-  // error across 21 hinges (kills the rubberband). CRITICAL: it tethers part directly to control, so it
-  // MUST be severed on EVERY cut/detach path or a "cut" string still invisibly holds the part up. Null
-  // once severed / never built (guards double-remove). See severRope + the cut/detach functions.
-  ropeJoint: RAPIER_NS.ImpulseJoint | null;
-  nominalLen: number;           // total chain length (its inextensible limit)
+  bodyAnchor: Vec2;             // body-local attach point on the part
+  nominalLen: number;           // captured rest length (the held-arch chord). The spring pulls ONLY when
+                                // the anchor→goal distance exceeds this, so a slack string exerts no force.
   slot: number;                 // finger slot 0..4 (thumb..pinky) — stable colour/number, attach order
-  cutJoint: number | null;      // null = intact; else the hinge index severed (chain split into 2 dangling halves)
+  // Cut state. There is no rope joint / chain to tear down: DROPPING the goal force IS the release, so a
+  // "cut" string simply stops pulling and its part falls free. `cut` guards double-cut; `cutPt` is the
+  // world point of the cut, kept so the severed ends can be drawn dangling instead of vanishing.
+  cut: boolean;
+  cutPt: Vec2 | null;
 }
 
 // Finger → part bindings. Fingers 1..5 = thumb..pinky (MediaPipe fingertip landmarks 4/8/12/16/20).
@@ -171,6 +182,7 @@ export interface Puppet {
   xOffset: number;
   homeTorso: Vec2;                 // torso center at scene setup — the neutral pose it's held at while waiting
   rootId: TargetName;              // the anchor part (id of parts[0]) — homeTorso positions THIS part
+  loadout: WeaponDef[];            // the weapons this puppet is armed with — kept so a round reset re-arms
 }
 
 // Create the shared world ONCE. The game/harness get a floor + center divider wall (defaults); the
@@ -232,50 +244,15 @@ function spherical(
   );
 }
 
-// Build a SEG_COUNT-link chain from a control body's origin to body@anchor. Chain length = the
-// CURRENT straight-line span * STRING_SLACK, so the string is taut at whatever geometry it's built
-// in — which is how the attach ritual captures the held arch (control@fingertip -> part@pose).
-function buildChain(
-  RAPIER: typeof RAPIER_NS, world: RAPIER_NS.World,
-  fromBody: RAPIER_NS.RigidBody, toBody: RAPIER_NS.RigidBody, toAnchor: Vec2,
-): { segs: RAPIER_NS.RigidBody[]; joints: RAPIER_NS.ImpulseJoint[]; nominalLen: number } {
-  const f = fromBody.translation();
-  const top = { x: f.x, y: f.y };
-  const bt = toBody.translation();
-  // Rotate the body-LOCAL anchor by the part's current z-rotation so the chain is built toward the
-  // SAME world point the rapier joint pins to (and the renderer's localToWorld draws). Identity for
-  // upright parts (the humanoid /game path), so it only matters for canted/horizontal/coiled rigs.
-  const q = toBody.rotation();
+// World-space position of a body-LOCAL anchor, honouring the part's z-rotation. This is the point the
+// string is bolted to (and drawn to). Identity-ish for upright humanoid parts; matters for canted /
+// horizontal / coiled rig parts. Shared by the attach capture, the goal-force drive, and the renderer.
+export function anchorWorld(body: RAPIER_NS.RigidBody, a: Vec2): Vec2 {
+  const p = body.translation();
+  const q = body.rotation();
   const ang = 2 * Math.atan2(q.z, q.w);
   const ca = Math.cos(ang), sa = Math.sin(ang);
-  const bot = { x: bt.x + toAnchor.x * ca - toAnchor.y * sa, y: bt.y + toAnchor.x * sa + toAnchor.y * ca };
-  const restDist = Math.hypot(bot.x - top.x, bot.y - top.y) || 1e-3;
-  const nominalLen = restDist * STRING_SLACK;
-  const segHalf = nominalLen / SEG_COUNT / 2;
-  const theta = Math.atan2((bot.x - top.x) / restDist, -(bot.y - top.y) / restDist);
-  const segs: RAPIER_NS.RigidBody[] = [];
-  // joints[k] is the hinge ABOVE seg k: joints[0]=control->seg0, joints[k]=seg[k-1]->seg[k]. The final
-  // joints[SEG_COUNT]=seg_last->body. Kept so a cut can sever the chain at one hinge (see cutStringAtSeg).
-  const joints: RAPIER_NS.ImpulseJoint[] = [];
-  let prev = fromBody;
-  let prevBottom: Vec2 = { x: 0, y: 0 }; // control point = the body origin
-  for (let i = 0; i < SEG_COUNT; i++) {
-    const t = (i + 0.5) / SEG_COUNT;
-    const seg = world.createRigidBody(dynDesc(RAPIER, top.x + (bot.x - top.x) * t, top.y + (bot.y - top.y) * t, theta));
-    world.createCollider(
-      RAPIER.ColliderDesc.capsule(segHalf, SEG_RAD).setDensity(SEG_DENSITY).setCollisionGroups(STRING_GROUP),
-      seg,
-    );
-    // string friction: heavily damp the link (decoupled from the puppet) so chains settle, not floppy.
-    seg.setLinearDamping(DEFAULT_STRING_FRICTION);
-    seg.setAngularDamping(DEFAULT_STRING_FRICTION * STRING_ANG_RATIO);
-    segs.push(seg);
-    joints.push(spherical(RAPIER, world, prev, prevBottom, seg, { x: 0, y: segHalf }));
-    prev = seg;
-    prevBottom = { x: 0, y: -segHalf };
-  }
-  joints.push(spherical(RAPIER, world, prev, prevBottom, toBody, toAnchor));
-  return { segs, joints, nominalLen };
+  return { x: p.x + a.x * ca - a.y * sa, y: p.y + a.x * sa + a.y * ca };
 }
 
 // Add one puppet (torso + limbs + 5 kinematic controls) to the shared world at xOffset. Strings are
@@ -334,7 +311,7 @@ export function addPuppet(
     );
   });
 
-  return { controls, parts, torso, partByTarget, strings: [], binding, xOffset, homeTorso: { x: tp.x, y: tp.y }, rootId: "torso" };
+  return { controls, parts, torso, partByTarget, strings: [], binding, xOffset, homeTorso: { x: tp.x, y: tp.y }, rootId: "torso", loadout: [] };
 }
 
 // ---- data-driven rigs (the character roster) --------------------------------------------------
@@ -381,17 +358,14 @@ export function buildRig(RAPIER: typeof RAPIER_NS, world: RAPIER_NS.World, cente
   const root = def.parts[0];
   return {
     controls, parts, torso: byId[root.id], partByTarget, strings: [], binding: def.binding,
-    xOffset: center.x, homeTorso: { x: center.x, y: center.y }, rootId: root.id,
+    xOffset: center.x, homeTorso: { x: center.x, y: center.y }, rootId: root.id, loadout: [],
   };
 }
 
-// Remove a whole puppet from the world (parts + controls + any live string segments). removeRigidBody
-// takes its colliders + attached joints with it, so this fully frees a deselected/reset puppet.
+// Remove a whole puppet from the world (parts + controls). removeRigidBody takes each body's colliders
+// + attached joints with it, so this fully frees a deselected/reset puppet. Strings carry no bodies of
+// their own now (the goal-drive is a per-frame force), so clearing the array releases them.
 export function removePuppet(world: RAPIER_NS.World, p: Puppet): void {
-  for (const s of p.strings) {
-    severRope(world, s); // remove the control->part rope joint explicitly (safety/order) before its bodies
-    for (const seg of s.segs) world.removeRigidBody(seg);
-  }
   for (const part of p.parts) world.removeRigidBody(part.body);
   for (const c of p.controls) world.removeRigidBody(c);
   p.strings = [];
@@ -413,95 +387,100 @@ export function reposePuppet(puppet: Puppet, torsoTarget: Vec2): void {
   }
 }
 
-// Attach ONE finger's string (slot 0..4 = thumb..pinky). The control is teleported to `controlPos`
-// (the captured fingertip) and a fresh chain is built to its part at the part's CURRENT position, so
-// the string's length encodes the held arch. `bind` is the driving hand's binding row for this slot.
+// Attach ONE finger's string (slot 0..4 = thumb..pinky). The control is teleported to `controlPos` (the
+// captured fingertip) and the string's REST LENGTH is captured as the current control→part-anchor chord,
+// so it encodes the held arch. No physics chain is built — the coupling is the per-frame capped goal
+// force (driveStringGoal). `bind` is the driving hand's binding row for this slot. `RAPIER`/`world` are
+// unused now (the string carries no bodies) but kept in the signature so the attach-ritual call sites
+// (engine.ts / pilot.ts) stay identical.
 export function attachStringForSlot(
-  RAPIER: typeof RAPIER_NS, world: RAPIER_NS.World,
+  _RAPIER: typeof RAPIER_NS, _world: RAPIER_NS.World,
   puppet: Puppet, slot: number, controlPos: Vec2, bind: FingerBind,
 ): void {
   const control = puppet.controls[slot];
   control.setTranslation({ x: controlPos.x, y: controlPos.y, z: 0 }, true);
   const part = puppet.partByTarget[bind.target];
-  const { segs, joints, nominalLen } = buildChain(RAPIER, world, control, part, bind.bodyAnchor);
-  // Rope joint parallel to the chain: a pure max-distance cap control-origin -> part@bodyAnchor at the
-  // chain's own length. Anchors match buildChain's endpoints (control origin {0,0}; body-LOCAL anchor —
-  // the rope solver rotates it with the part, same as the final hinge). Load-bearing when taut, inert
-  // when slack. MUST be severed on every cut/detach path (see severRope).
-  const ropeJoint = world.createImpulseJoint(
-    RAPIER.JointData.rope(nominalLen, { x: 0, y: 0, z: 0 }, { x: bind.bodyAnchor.x, y: bind.bodyAnchor.y, z: 0 }),
-    control, part, true,
-  );
-  puppet.strings.push({ name: bind.name, control, body: part, target: bind.target, bodyAnchor: bind.bodyAnchor, segs, joints, ropeJoint, nominalLen, slot, cutJoint: null });
+  const anchor = anchorWorld(part, bind.bodyAnchor);
+  const nominalLen = Math.hypot(anchor.x - controlPos.x, anchor.y - controlPos.y) || 1e-3;
+  puppet.strings.push({ name: bind.name, control, body: part, target: bind.target, bodyAnchor: bind.bodyAnchor, nominalLen, slot, cut: false, cutPt: null });
 }
 
-// Remove a string's rope joint if it still exists, then null it (guards double-remove — e.g. a string
-// cut and later reset). The rope joint runs control->part (NOT a segment), so it survives segment
-// removal and MUST be taken out explicitly on every cut/detach path or the "cut" part stays held.
-function severRope(world: RAPIER_NS.World, s: PuppetString): void {
-  if (s.ropeJoint) { world.removeImpulseJoint(s.ropeJoint, true); s.ropeJoint = null; }
+// THE LOAD PATH — apply one string's capped, damped spring GOAL pull this frame, dragging its part's
+// anchor toward the fingertip (the control). It's a ROPE-spring: zero while slack (anchor within
+// nominalLen of the goal, so gravity just hangs the part), then a pull ACCELERATION `k*stretch -
+// c*closingVel` toward the goal, HARD-CAPPED at `cap`, turned into a force by ×part.mass. The mass
+// scaling is what keeps it rip-proof AND stable across wildly different part masses (see the constants
+// above): the impulse the ball joint must resist is bounded to ~mass×cap, proportional to the limb, so
+// the joint always holds — the limb lags at the cap and follows, it can't tear off. A string only ever
+// PULLS (mag >= 0), never pushes. Applied AT the anchor point so it also orients the limb (a real
+// string tugs the tip only in feel — we apply at the COM as a one-shot IMPULSE per step). Applied as an
+// impulse (force × dt) NOT addForce: Rapier's addForce persists and re-applies every step, so a
+// per-frame addForce accumulates and the puppet runs away. No-op once cut (dropping it IS release).
+export function driveStringGoal(s: PuppetString, k: number, c: number, cap: number, dt: number): void {
+  if (s.cut) return;
+  const goal = s.control.translation();
+  const anchor = anchorWorld(s.body, s.bodyAnchor);
+  const dx = goal.x - anchor.x, dy = goal.y - anchor.y;
+  const dist = Math.hypot(dx, dy) || 1e-6;
+  const stretch = dist - s.nominalLen;
+  if (stretch <= 0) return; // slack: no pull
+  const ux = dx / dist, uy = dy / dist;
+  const v = s.body.linvel();
+  const closing = v.x * ux + v.y * uy; // >0 = part moving toward the goal (the string relaxing)
+  let a = k * stretch - c * closing; // pull ACCELERATION toward the goal (rope: only past nominalLen)
+  if (a < 0) a = 0;      // a string only pulls, never pushes
+  if (a > cap) a = cap;  // the no-rip cap (acceleration; ×mass·dt below keeps it rip-proof across masses)
+  const j = a * s.body.mass() * dt; // impulse = force × dt (a·m·dt)
+  s.body.applyImpulse({ x: ux * j, y: uy * j, z: 0 }, true);
 }
 
-// CUT an intact string at the hinge nearest `segIndex` (the swiped link), severing the chain into two
-// dangling halves: the upper (control..seg[cut-1]) keeps hanging from the control, the lower
-// (seg[cut]..body) keeps hanging from the part. The string OBJECT stays (so both halves render); it's
-// just no longer a continuous control->part connection. Returns the part it held, or null if the
-// string is missing / already cut.
-export function cutStringAtSeg(world: RAPIER_NS.World, puppet: Puppet, slot: number, segIndex: number): TargetName | null {
+// Drive EVERY string of a puppet (the shared per-frame call for engine.ts + pilot.ts — keeps the goal
+// math in one place). Cut strings are skipped inside driveStringGoal.
+export function driveStrings(puppet: Puppet, k: number, c: number, cap: number, dt: number): void {
+  for (const s of puppet.strings) driveStringGoal(s, k, c, cap, dt);
+}
+
+// CUT a string (by finger slot): stop its goal force so the part it held falls free, and mark WHERE it
+// was cut (`at`, world point) so the severed ends can be drawn dangling. The string OBJECT stays (both
+// stubs still render). Returns the part it held, or null if the string is missing / already cut.
+export function cutString(puppet: Puppet, slot: number, at: Vec2): TargetName | null {
   const s = puppet.strings.find((x) => x.slot === slot);
-  if (!s || s.cutJoint !== null) return null;
-  const j = Math.max(0, Math.min(SEG_COUNT - 1, segIndex)); // hinge ABOVE the swiped link
-  world.removeImpulseJoint(s.joints[j], true);
-  severRope(world, s); // the rope joint bypasses the chain — drop it too or the "cut" part stays held
-  s.cutJoint = j;
+  if (!s || s.cut) return null;
+  s.cut = true;
+  s.cutPt = { x: at.x, y: at.y };
   return s.target;
 }
 
-// Sever every still-intact string (at its midpoint) — the full collapse when a puppet is killed, so
-// all strings dangle instead of vanishing.
-export function cutAllIntact(world: RAPIER_NS.World, puppet: Puppet): void {
-  for (const s of puppet.strings) if (s.cutJoint === null) {
-    world.removeImpulseJoint(s.joints[SEG_COUNT >> 1], true);
-    severRope(world, s); // parallel rope joint bypasses the chain — sever it or the part stays held
-    s.cutJoint = SEG_COUNT >> 1;
+// Sever every still-intact string — the full collapse when a puppet is killed, so all strings dangle
+// (their parts fall) instead of vanishing. Cuts at each string's current midpoint.
+export function cutAllIntact(puppet: Puppet): void {
+  for (const s of puppet.strings) if (!s.cut) {
+    const top = s.control.translation();
+    const anchor = anchorWorld(s.body, s.bodyAnchor);
+    s.cut = true;
+    s.cutPt = { x: (top.x + anchor.x) / 2, y: (top.y + anchor.y) / 2 };
   }
 }
 
-// Cut all strings: remove every chain segment (which also removes its joints + colliders). The
-// control + part bodies remain; with nothing holding it up the puppet falls to the floor — the reset.
-export function detachAllStrings(world: RAPIER_NS.World, puppet: Puppet): void {
-  for (const s of puppet.strings) {
-    severRope(world, s); // rope joint is on control+part (not a seg) — removeRigidBody won't take it
-    for (const seg of s.segs) world.removeRigidBody(seg);
-  }
+// Cut ALL strings and drop them from the list. With no goal force holding it up the puppet falls to the
+// floor — the reset. (Controls + parts remain; the strings carry no bodies to remove.)
+export function detachAllStrings(puppet: Puppet): void {
   puppet.strings = [];
 }
 
-// Cut ONE string (by finger slot): remove its segments and drop it from the list. Returns the part it
-// held (so the caller can react — e.g. cutting the `torso`/head string is the kill), or null if absent.
-export function detachString(world: RAPIER_NS.World, puppet: Puppet, slot: number): TargetName | null {
+// Cut ONE string (by finger slot) and drop it from the list. Returns the part it held (so the caller
+// can react — e.g. cutting the `torso`/head string is the kill), or null if absent.
+export function detachString(puppet: Puppet, slot: number): TargetName | null {
   const idx = puppet.strings.findIndex((s) => s.slot === slot);
   if (idx < 0) return null;
   const s = puppet.strings[idx];
-  severRope(world, s); // rope joint is on control+part (not a seg) — removeRigidBody won't take it
-  for (const seg of s.segs) world.removeRigidBody(seg);
   puppet.strings.splice(idx, 1);
   return s.target;
 }
 
-// Zero linear + angular velocity on every chain SEGMENT. The heavy chains hang between the pinned
-// control (top) and pinned part (bottom) during the attach ritual and keep swinging under gravity;
-// left alone they dump that carried energy into the puppet the instant it's freed (the "seizure").
-// Called every frame during attach and once at release so the chains hand over at rest.
-export function stillStrings(puppet: Puppet): void {
-  for (const s of puppet.strings) for (const seg of s.segs) {
-    seg.setLinvel({ x: 0, y: 0, z: 0 }, true);
-    seg.setAngvel({ x: 0, y: 0, z: 0 }, true);
-  }
-}
-
-// Zero linear + angular velocity on the PUPPET PARTS without moving them (reposePuppet teleports;
-// this doesn't). Used at release to strip any residual part velocity before physics takes over.
+// Zero linear + angular velocity on the PUPPET PARTS without moving them (reposePuppet teleports; this
+// doesn't). Used at release to strip any residual part velocity before the goal forces take over, so
+// the puppet hands over at rest (the anti-seizure guarantee — no carried energy to spasm).
 export function stillParts(puppet: Puppet): void {
   for (const p of puppet.parts) {
     p.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
@@ -509,26 +488,82 @@ export function stillParts(puppet: Puppet): void {
   }
 }
 
-// Swing damping on the PUPPET PARTS (the "drag" / float knob). Segments are handled separately by
-// setStringFriction so the string settling is decoupled from the puppet's fall.
+// Swing damping on the PUPPET PARTS (the "drag" / float knob) + the post-attach settle ramp lever.
 export function setDamping(puppet: Puppet, linear: number, angular: number): void {
   for (const p of puppet.parts) { p.body.setLinearDamping(linear); p.body.setAngularDamping(angular); }
 }
 
-// String friction (the "joint friction" knob): per-segment velocity + spin damping. Decoupled from
-// the parts so cranking it calms the floppy chains WITHOUT floating the puppet's fall. Too high and
-// the strings lag the control (sluggish).
-export function setStringFriction(puppet: Puppet, friction: number): void {
-  for (const s of puppet.strings) for (const seg of s.segs) {
-    seg.setLinearDamping(friction);
-    seg.setAngularDamping(friction * STRING_ANG_RATIO);
-  }
-}
-
-// Scale puppet mass at runtime (part density = baseDensity * weight). Segments stay light on purpose.
+// Scale puppet mass at runtime (part density = baseDensity * weight). Heavier parts want a higher force
+// cap to hold up (the strings pull harder), so weight and the string cap are tuned together.
+// Note: recomputeMassPropertiesFromColliders sums ALL colliders on the body, so a bolted-on weapon's
+// mass rides along here for free — only the part's OWN collider density is scaled by weight.
 export function setPuppetWeight(puppet: Puppet, weight: number): void {
   for (const p of puppet.parts) {
     p.collider.setDensity(p.baseDensity * weight);
     p.body.recomputeMassPropertiesFromColliders();
   }
+}
+
+// ---- weapons (disjoint reach) -----------------------------------------------------------------
+
+// World point at local (0, -dist) along a limb's axis (its free-end / "down" direction). dist = half
+// is the bare capsule tip; half + weapon.reach is the blade tip. Matches cut.ts's tipOf exactly, so
+// cut detection, mass, and rendering all agree on where the blade is. Shared by cut + draw.
+export function limbAxisPoint(part: Capsule, dist: number): Vec2 {
+  const p = part.body.translation();
+  const q = part.body.rotation();
+  const th = 2 * Math.atan2(q.z, q.w); // z-only rotation
+  return { x: p.x + dist * Math.sin(th), y: p.y - dist * Math.cos(th) };
+}
+
+// A part's LIVE weapon reach (0 if unarmed or disarmed) — the cut sampler adds this to the limb half.
+export const liveWeaponReach = (part: Capsule): number =>
+  part.weapon && !part.weapon.disarmed ? part.weapon.def.reach : 0;
+
+// Does this puppet carry any live (non-disarmed) weapon? cut.ts uses weapon tips when armed and falls
+// back to bare limbs only for a wholly-unarmed puppet (so /characters rigs still work unchanged).
+export const isArmed = (puppet: Puppet): boolean =>
+  puppet.parts.some((c) => c.weapon && !c.weapon.disarmed);
+
+// Arm a puppet from a loadout: bolt each weapon's capsule collider onto its target limb, extending
+// PAST the tip along the limb axis, and stash it on the limb's Capsule. Rebuilds from scratch each
+// call (clearing any existing weapon colliders first), so it also RE-ARMS blades a disarm dropped —
+// call it at round start. The collider density is the commitment mass; body mass is recomputed to
+// include it. The weapon shares PUPPET_GROUP, so the center divider wall still blocks it.
+export function armPuppet(RAPIER: typeof RAPIER_NS, world: RAPIER_NS.World, puppet: Puppet, defs: WeaponDef[]): void {
+  for (const part of puppet.parts) {
+    if (part.weapon) {
+      if (!part.weapon.disarmed) world.removeCollider(part.weapon.collider, true);
+      part.weapon = undefined;
+      part.body.recomputeMassPropertiesFromColliders();
+    }
+  }
+  puppet.loadout = defs;
+  for (const def of defs) {
+    const body = puppet.partByTarget[def.target];
+    if (!body) continue;
+    const part = puppet.parts.find((c) => c.body === body);
+    if (!part) continue;
+    const halfLen = def.reach / 2;
+    const collider = world.createCollider(
+      RAPIER.ColliderDesc.capsule(halfLen, def.thickness)
+        .setDensity(def.density)
+        .setTranslation(0, -(part.half + halfLen), 0) // local: centered just past the limb tip
+        .setCollisionGroups(PUPPET_GROUP),
+      body,
+    );
+    part.weapon = { def, collider, disarmed: false };
+    body.recomputeMassPropertiesFromColliders();
+  }
+}
+
+// Drop a limb's weapon (remove the collider, mark disarmed) — the reward for cutting a weapon arm's
+// string. The limb itself remains (still jointed to the torso) but can no longer cut. Idempotent.
+export function disarmWeapon(world: RAPIER_NS.World, part: Capsule): boolean {
+  const w = part.weapon;
+  if (!w || w.disarmed) return false;
+  world.removeCollider(w.collider, true);
+  w.disarmed = true;
+  part.body.recomputeMassPropertiesFromColliders();
+  return true;
 }

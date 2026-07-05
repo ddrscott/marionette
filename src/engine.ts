@@ -7,11 +7,12 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import { OneEuro } from "./oneEuro.ts";
 import {
-  buildWorld, addPuppet, setDamping, setPuppetWeight, setStringFriction,
-  reposePuppet, attachStringForSlot, detachAllStrings, stillStrings, stillParts,
+  buildWorld, addPuppet, setDamping, setPuppetWeight,
+  reposePuppet, attachStringForSlot, detachAllStrings, stillParts, armPuppet, driveStrings,
   FINGERTIPS, bindingForHandedness, PUPPET_X_OFFSET, RIGHT_HAND_BINDING, LEFT_HAND_BINDING,
-  DEFAULT_LINEAR_DAMPING, DEFAULT_ANGULAR_DAMPING, DEFAULT_PUPPET_WEIGHT, DEFAULT_STRING_FRICTION,
-  WORLD_VIEW_HEIGHT, FLOOR_TOP, WALL_HALF_W, type Puppet, type FingerBind, type TargetName,
+  DEFAULT_LINEAR_DAMPING, DEFAULT_ANGULAR_DAMPING, DEFAULT_PUPPET_WEIGHT,
+  DEFAULT_STRING_STIFFNESS, DEFAULT_STRING_DAMPING, DEFAULT_STRING_FORCE_CAP,
+  WORLD_VIEW_HEIGHT, FLOOR_TOP, WALL_HALF_W, type Puppet, type FingerBind, type TargetName, type WeaponDef,
 } from "./puppet.ts";
 import { stageX, stageY } from "./control.ts";
 import { initHands, type Hands, type Landmark, type QualityTier } from "./hands.ts";
@@ -43,7 +44,6 @@ const ATTACH_ORDER = [2, 0, 4, 1, 3]; // slot order strings snap on: torso(head)
 const SETTLE_MS = 700;               // how long the elevated damping eases back to normal
 const SETTLE_LINEAR_DAMPING = 5;     // part linear damping at t=0 (vs ~0.4 normal) -> eases to `drag`
 const SETTLE_ANGULAR_DAMPING = 8;    // part angular damping at t=0 (vs 1.0 normal)
-const SETTLE_FRICTION = 40;          // segment friction at t=0 (vs 8 normal) -> eases to `friction`
 const easeOut = (t: number): number => 1 - (1 - t) * (1 - t); // t in [0,1], eased for a smooth relax
 
 // Critically-damped smoothing toward a target (Unity's Mathf.SmoothDamp). Velocity-continuous, so a
@@ -132,13 +132,18 @@ export class Stage {
   gravityY = DEFAULT_GRAVITY;
   smoothTime = 0.01;
   debug = false;
+  // Soft goal-drive string tunables — read every frame by driveStrings (no body mutation, so plain
+  // fields like swingRange, not setters). stiffness = pull per unit stretch, damping = along-string
+  // damping, forceCap = the no-rip cap (keep below the ball-joint strength).
+  stringStiffness = DEFAULT_STRING_STIFFNESS;
+  stringDamping = DEFAULT_STRING_DAMPING;
+  stringForceCap = DEFAULT_STRING_FORCE_CAP;
   // Game rule: clamp each player's fingertips to their own half of the stage (slot 0 = left, x<=0;
   // slot 1 = right, x>=0) so neither can reach across the center line. Off by default (free harness).
   clampHalf = false;
   // ---- tunables that must be APPLIED to existing bodies (use the setters) ----
   private weight = DEFAULT_PUPPET_WEIGHT;
   private drag = DEFAULT_LINEAR_DAMPING;
-  private friction = DEFAULT_STRING_FRICTION;
 
   readonly handStates: [HandState, HandState] = [makeHandState(), makeHandState()];
   readonly slotStates: [SlotState, SlotState] = [makeSlotState(), makeSlotState()];
@@ -206,10 +211,14 @@ export class Stage {
   // ---- live setters for the tunables that touch existing bodies ----
   setWeight(w: number): void { this.weight = w; for (const p of this.puppets) setPuppetWeight(p, w); }
   setDrag(d: number): void { this.drag = d; for (const p of this.puppets) setDamping(p, d, DEFAULT_ANGULAR_DAMPING); }
-  setFriction(f: number): void { this.friction = f; for (const p of this.puppets) setStringFriction(p, f); }
   get weightVal(): number { return this.weight; }
   get dragVal(): number { return this.drag; }
-  get frictionVal(): number { return this.friction; }
+
+  // ---- weapons ----
+  // Arm one puppet with a loadout (stored on the puppet, so rearm() can rebuild dropped blades).
+  arm(slot: 0 | 1, weapons: WeaponDef[]): void { armPuppet(RAPIER, this.world, this.puppets[slot], weapons); }
+  // Re-apply each puppet's stored loadout — rebuilds any blade a disarm dropped. Called at round start.
+  rearm(): void { for (const p of this.puppets) armPuppet(RAPIER, this.world, p, p.loadout); }
 
   start(): void { requestAnimationFrame(this.loop); }
 
@@ -320,7 +329,7 @@ export class Stage {
     }
   }
 
-  private updateSlot(slot: 0 | 1, now: number, dt: number): void {
+  private updateSlot(slot: 0 | 1, now: number, dt: number): void { // dt is the frame step (for goal impulses)
     const h = this.handStates[slot];
     const st = this.slotStates[slot];
     const p = this.puppets[slot];
@@ -354,17 +363,13 @@ export class Stage {
             st.attached++;
           }
         }
-        // Calm the heavy chains EVERY attach frame so they don't build swing energy while pinned at
-        // both ends. Without this they hang mid-swing and, on release, dump that energy into the freed
-        // parts -> the seizure.
-        stillStrings(p);
         if (st.attached >= ATTACH_ORDER.length && now - st.attachT0 >= ATTACH_ORDER.length * ATTACH_STRING_MS) {
-          // Hand over at REST: zero every part + segment velocity, then start the settle ramp with
-          // elevated damping/friction that eases back to the slider values over SETTLE_MS.
+          // Hand over at REST: zero every part velocity, then start the settle ramp with elevated part
+          // damping that eases back to the slider value over SETTLE_MS. Strings were captured at the
+          // held pose (stretch ~0 -> ~0 force), so there's no chain energy to spasm; the ramp only
+          // absorbs the gentle sag as gravity loads the springs.
           stillParts(p);
-          stillStrings(p);
           setDamping(p, SETTLE_LINEAR_DAMPING, SETTLE_ANGULAR_DAMPING);
-          setStringFriction(p, SETTLE_FRICTION);
           st.settleT0 = now;
           h.primed = false;
           st.phase = "running";
@@ -375,6 +380,9 @@ export class Stage {
         if (absent) { this.resetToWaiting(slot); break; }
         this.applySettle(p, st, now);
         if (h.present) { this.smoothControls(h, dt); this.drivePuppet(p, h); }
+        // Apply the capped goal force every running frame (even during a brief hand gap within grace)
+        // so the puppet keeps holding itself up from the last control positions.
+        driveStrings(p, this.stringStiffness, this.stringDamping, this.stringForceCap, dt);
         break;
     }
   }
@@ -387,7 +395,6 @@ export class Stage {
     const t = (now - st.settleT0) / SETTLE_MS;
     if (t >= 1) {
       setDamping(p, this.drag, DEFAULT_ANGULAR_DAMPING);
-      setStringFriction(p, this.friction);
       st.settleT0 = -1;
       return;
     }
@@ -397,7 +404,6 @@ export class Stage {
       this.drag + (SETTLE_LINEAR_DAMPING - this.drag) * k,
       DEFAULT_ANGULAR_DAMPING + (SETTLE_ANGULAR_DAMPING - DEFAULT_ANGULAR_DAMPING) * k,
     );
-    setStringFriction(p, this.friction + (SETTLE_FRICTION - this.friction) * k);
   }
 
   private beginAttach(slot: 0 | 1, now: number): void {
@@ -419,7 +425,7 @@ export class Stage {
 
   // Cut ALL of a puppet's strings and return it to the waiting/prompt state at its neutral home pose.
   resetToWaiting(slot: 0 | 1): void {
-    detachAllStrings(this.world, this.puppets[slot]);
+    detachAllStrings(this.puppets[slot]);
     reposePuppet(this.puppets[slot], this.puppets[slot].homeTorso);
     // A reset mid-settle would otherwise leave the parts stuck at elevated damping; restore the slider.
     setDamping(this.puppets[slot], this.drag, DEFAULT_ANGULAR_DAMPING);
