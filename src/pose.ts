@@ -42,18 +42,34 @@ const SIL_HALF_PAD = 0.12;
 // A pose = per-part {x,y,angle} (index order: torso, lArm, rArm, lLeg, rLeg).
 type PoseNode = { x: number; y: number; angle: number };
 
-// Built-in target poses as per-part OFFSETS from the root (+y up). Reachable for a marionette (pulled
-// from ABOVE — "up/out" poses are natural). Each limb's ANGLE is derived radially (pointing away from
-// the torso), which is roughly how a raised/spread limb hangs — so orientation matching stays fair.
-const BUILTINS: { name: string; offs: Vec2[] }[] = [
-  { name: "STAR",  offs: [{ x: 0, y: 0 }, { x: -1.0, y: 0.5 }, { x: 1.0, y: 0.5 }, { x: -0.8, y: -1.2 }, { x: 0.8, y: -1.2 }] },
+// Built-in target poses as per-part OFFSETS from the root (+y up), index order torso,lArm,rArm,lLeg,rLeg.
+// `rot` (radians) turns the WHOLE figure — offsets AND the torso's orientation — so a pose can be
+// sideways (±quarter-turn) or upside-down (half-turn), not just the natural "pulled-from-above" up/out
+// shapes. Each limb's ANGLE is derived radially from its (rotated) offset, so it follows the turn for
+// free; only the root/torso needs its angle set to `rot` explicitly.
+const STAR_OFFS: Vec2[] = [{ x: 0, y: 0 }, { x: -1.0, y: 0.5 }, { x: 1.0, y: 0.5 }, { x: -0.8, y: -1.2 }, { x: 0.8, y: -1.2 }];
+const BUILTINS: { name: string; offs: Vec2[]; rot?: number }[] = [
+  { name: "STAR",  offs: STAR_OFFS },
   { name: "CHEER", offs: [{ x: 0, y: 0 }, { x: -0.6, y: 0.9 }, { x: 0.6, y: 0.9 }, { x: -0.3, y: -1.3 }, { x: 0.3, y: -1.3 }] },
   { name: "KICK",  offs: [{ x: 0, y: 0 }, { x: -0.8, y: 0.2 }, { x: 0.8, y: 0.2 }, { x: -0.2, y: -1.3 }, { x: 0.9, y: -0.5 }] },
+  // sideways — a quarter-turn each way (body horizontal, limbs splayed to one side)
+  { name: "SIDE-L", offs: STAR_OFFS, rot: Math.PI / 2 },
+  { name: "SIDE-R", offs: STAR_OFFS, rot: -Math.PI / 2 },
+  // a gentler diagonal lean, and the full upside-down half-turn
+  { name: "LEAN",   offs: [{ x: 0, y: 0 }, { x: -0.7, y: 0.8 }, { x: 0.9, y: 0.4 }, { x: -0.6, y: -1.1 }, { x: 0.5, y: -1.2 }], rot: Math.PI / 5 },
+  { name: "TUMBLE", offs: STAR_OFFS, rot: Math.PI },
 ];
 // z-angle whose capsule free-end points along (dx,dy) — i.e. radially outward from the root.
 const radialAngle = (dx: number, dy: number): number => (dx === 0 && dy === 0 ? 0 : Math.atan2(dx, -dy));
-const builtinPose = (i: number): PoseNode[] =>
-  BUILTINS[i].offs.map((o) => ({ x: PLACE.x + o.x, y: PLACE.y + o.y, angle: radialAngle(o.x, o.y) }));
+const builtinPose = (i: number): PoseNode[] => {
+  const b = BUILTINS[i];
+  const rot = b.rot ?? 0;
+  const c = Math.cos(rot), s = Math.sin(rot);
+  return b.offs.map((o, idx) => {
+    const rx = o.x * c - o.y * s, ry = o.x * s + o.y * c; // rotate the offset about the root
+    return { x: PLACE.x + rx, y: PLACE.y + ry, angle: idx === ROOT_I ? rot : radialAngle(rx, ry) };
+  });
+};
 
 const wrapAbs = (d: number): number => Math.abs(Math.atan2(Math.sin(d), Math.cos(d)));
 
