@@ -20,8 +20,9 @@ const VERT_SPAN = WORLD_VIEW_HEIGHT;
 const POS_MIN_CUTOFF = 5.0;
 const POS_BETA = 0.01;
 
-// ---- ritual constants (mirror engine.ts so the tryout feels identical to the game) ----
-const HOLD_MS = 700;
+// ---- ritual constants ----
+// No hold-still dwell: the moment the hand is present and not moving fast, attaching begins (the attach
+// itself is the "hold" — movement during it resets). STEADY_MARGIN gates that "not moving fast" check.
 const STEADY_MARGIN = 0.5;
 const ATTACH_STRING_MS = 200;
 const ATTACH_MARGIN = 0.8;
@@ -52,7 +53,7 @@ const maxPtDist = (a: Pt[], b: Pt[]): number => {
   return m;
 };
 
-export type PilotPhase = "waiting" | "steadying" | "attaching" | "running";
+export type PilotPhase = "waiting" | "attaching" | "running";
 
 // Live tunables the page owns (worldWidth changes on resize) — read every frame.
 export interface PilotCfg {
@@ -80,7 +81,6 @@ export class Pilot {
   private readonly ffy = FINGERTIPS.map(() => new OneEuro(POS_MIN_CUTOFF, POS_BETA));
 
   private steadyAnchor: Pt[] = FINGERTIPS.map(() => ({ x: 0, y: 0 }));
-  private steadyT0 = 0;
   private captured: Pt[] = FINGERTIPS.map(() => ({ x: 0, y: 0 }));
   private attachTorso: Pt = { x: 0, y: 0 };
   private attachT0 = 0;
@@ -97,10 +97,10 @@ export class Pilot {
     private readonly cfg: PilotCfg,
   ) {}
 
-  // Fraction of the hold complete (drives the prompt bar). 1 while strings are snapping on.
+  // Fraction of the attach complete (drives the prompt bar) — grows as the strings snap on.
   steadyProgress(now: number): number {
-    if (this.phase === "steadying") return Math.min(1, (now - this.steadyT0) / HOLD_MS);
-    return this.phase === "attaching" ? 1 : 0;
+    if (this.phase === "attaching") return Math.min(1, (now - this.attachT0) / (ATTACH_ORDER.length * ATTACH_STRING_MS));
+    return this.phase === "running" ? 1 : 0;
   }
 
   // Feed this frame's landmarks (null = hand not detected). Fills `pos` from the puppet's own binding.
@@ -123,16 +123,14 @@ export class Pilot {
 
     switch (this.phase) {
       case "waiting":
+        // No hold-still dwell — the puppet idles at home, and the moment the hand is present AND not
+        // moving fast (within STEADY_MARGIN of last frame) we go straight to attaching. A fast-moving
+        // hand just re-anchors and keeps waiting; movement DURING the attach resets it (below). So the
+        // player only "holds" once — during the attach — instead of a steady-hold and then the attach.
         reposePuppet(p, p.homeTorso);
-        if (this.present) { copyPts(this.steadyAnchor, this.pos); this.steadyT0 = now; this.phase = "steadying"; }
-        break;
-
-      case "steadying":
-        reposePuppet(p, p.homeTorso);
-        if (absent) { this.phase = "waiting"; break; }
         if (!this.present) break;
-        if (maxPtDist(this.pos, this.steadyAnchor) > STEADY_MARGIN) { copyPts(this.steadyAnchor, this.pos); this.steadyT0 = now; }
-        else if (now - this.steadyT0 >= HOLD_MS) this.beginAttach(now);
+        if (maxPtDist(this.pos, this.steadyAnchor) > STEADY_MARGIN) { copyPts(this.steadyAnchor, this.pos); break; }
+        this.beginAttach(now);
         break;
 
       case "attaching":

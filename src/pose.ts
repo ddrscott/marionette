@@ -80,7 +80,9 @@ const LS_BINDING = "handbattle.pose.binding";
 const FINGER_NAMES = ["thumb", "index", "middle", "ring", "pinky"];
 const TARGET_LABELS: Record<string, string> = { lArm: "left arm", rArm: "right arm", lLeg: "left leg", rLeg: "right leg", torso: "head" };
 const BASE_BIND = RIGHT_HAND_BINDING;                          // 5 canonical rows (landmark + anchor per target)
-const DEFAULT_TARGETS = BASE_BIND.map((f) => f.target);        // ["lArm","lLeg","torso","rLeg","rArm"]
+// The default /pose mapping (more intuitive: outer fingers → legs, inner → arms, middle → head).
+// slot order thumb,index,middle,ring,pinky. Scoped to /pose — the game keeps its own no-cross binding.
+const DEFAULT_TARGETS: TargetName[] = ["lLeg", "lArm", "torso", "rArm", "rLeg"];
 const ANCHOR_BY_TARGET = new Map(BASE_BIND.map((f) => [f.target, f.bodyAnchor] as const));
 const REMAP_TARGETS = DEFAULT_TARGETS.map((t) => ({ value: String(t), label: TARGET_LABELS[t] ?? String(t) }));
 
@@ -245,9 +247,9 @@ const loadTargets = (): string[] => {
       renderer.drawPuppet(puppet);
 
       const ph = pilot.phase;
-      if (ph === "waiting" || ph === "steadying" || ph === "attaching") {
+      if (ph === "waiting" || ph === "attaching") {
         renderer.drawPrompt(puppet.xOffset, 0, pilot.steadyProgress(now), now);
-        if ((ph === "steadying" || ph === "attaching") && pilot.present) {
+        if (ph === "attaching" && pilot.present) {
           renderer.drawFingerPoints(pilot.pos, teamColor(puppet.xOffset));
         }
       }

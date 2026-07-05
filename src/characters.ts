@@ -189,9 +189,9 @@ const gridCenter = (i: number, W: number): Vec2 => ({ x: (i % 5 - 2) * colGap(W)
 
         renderer.drawPuppet(chosen);
         const ph = pilot.phase;
-        if (ph === "waiting" || ph === "steadying" || ph === "attaching") {
+        if (ph === "waiting" || ph === "attaching") {
           renderer.drawPrompt(chosen.xOffset, 0, pilot.steadyProgress(now), now);
-          if ((ph === "steadying" || ph === "attaching") && pilot.present) {
+          if (ph === "attaching" && pilot.present) {
             renderer.drawFingerPoints(pilot.pos, teamColor(chosen.xOffset));
           }
         }
