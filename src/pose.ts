@@ -13,8 +13,8 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import {
   buildWorld, addPuppet, reposePuppet, setPuppetWeight,
-  RIGHT_HAND_BINDING, DEFAULT_LINEAR_DAMPING, DEFAULT_PUPPET_WEIGHT,
-  DEFAULT_STRING_STIFFNESS, DEFAULT_STRING_DAMPING, DEFAULT_STRING_FORCE_CAP,
+  RIGHT_HAND_BINDING, DEFAULT_PUPPET_WEIGHT,
+  DEFAULT_STRING_STIFFNESS, DEFAULT_STRING_FORCE_CAP,
   type Vec2,
 } from "./puppet.ts";
 import { Pilot, type PilotCfg } from "./pilot.ts";
@@ -74,11 +74,16 @@ const wrapAbs = (d: number): number => Math.abs(Math.atan2(Math.sin(d), Math.cos
 
     const hands = await initHands(video, { deviceId: localStorage.getItem(LS_DEVICE), tier });
 
+    // /pose is a HOLD-STILL task (nestle each limb into the silhouette and keep it there), so it's
+    // deliberately CALMER than the game: the puppet should settle onto the goal and stay, not ring
+    // around it. Every lever below is damped up vs the game defaults — a smoother goal (bigger
+    // smoothTime) so hand jitter stops exciting the swing; heavier linear/angular part damping so the
+    // pendulum + limb wobble die fast; more along-string damping to kill rubberband on the pull.
     const cfg: PilotCfg = {
       worldWidth: renderer.worldWidth,
-      playMargin: loadMargin(), swingRange: 1.0, smoothTime: 0.01,
-      drag: DEFAULT_LINEAR_DAMPING,
-      stiffness: DEFAULT_STRING_STIFFNESS, damping: DEFAULT_STRING_DAMPING, forceCap: DEFAULT_STRING_FORCE_CAP,
+      playMargin: loadMargin(), swingRange: 1.0, smoothTime: 0.05,
+      drag: 2.5, angularDrag: 3.5,
+      stiffness: DEFAULT_STRING_STIFFNESS, damping: 28, forceCap: DEFAULT_STRING_FORCE_CAP,
     };
 
     // Standard app menu (gear → slide-over): camera + quality + play-area margin (no audio on /pose).

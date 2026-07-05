@@ -60,7 +60,8 @@ export interface PilotCfg {
   playMargin: number;
   swingRange: number;
   smoothTime: number;
-  drag: number;
+  drag: number;               // post-settle LINEAR damping on the parts (swing/pendulum drag)
+  angularDrag?: number;       // post-settle ANGULAR damping (limb wobble/spin); defaults to DEFAULT_ANGULAR_DAMPING
   // Soft goal-drive string tunables (read every frame by driveStrings).
   stiffness: number;
   damping: number;
@@ -201,9 +202,10 @@ export class Pilot {
 
   private applySettle(now: number): void {
     if (this.settleT0 < 0) return;
+    const angDrag = this.cfg.angularDrag ?? DEFAULT_ANGULAR_DAMPING;
     const t = (now - this.settleT0) / SETTLE_MS;
     if (t >= 1) {
-      setDamping(this.puppet, this.cfg.drag, DEFAULT_ANGULAR_DAMPING);
+      setDamping(this.puppet, this.cfg.drag, angDrag);
       this.settleT0 = -1;
       return;
     }
@@ -211,7 +213,7 @@ export class Pilot {
     setDamping(
       this.puppet,
       this.cfg.drag + (SETTLE_LINEAR_DAMPING - this.cfg.drag) * k,
-      DEFAULT_ANGULAR_DAMPING + (SETTLE_ANGULAR_DAMPING - DEFAULT_ANGULAR_DAMPING) * k,
+      angDrag + (SETTLE_ANGULAR_DAMPING - angDrag) * k,
     );
   }
 
@@ -219,7 +221,7 @@ export class Pilot {
   reset(): void {
     detachAllStrings(this.puppet);
     reposePuppet(this.puppet, this.puppet.homeTorso);
-    setDamping(this.puppet, this.cfg.drag, DEFAULT_ANGULAR_DAMPING);
+    setDamping(this.puppet, this.cfg.drag, this.cfg.angularDrag ?? DEFAULT_ANGULAR_DAMPING);
     this.phase = "waiting";
     this.attached = 0;
     this.settleT0 = -1;
