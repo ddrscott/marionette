@@ -332,6 +332,63 @@ body.kb #camBox { z-index: 55; } /* self-view stays visible above the how-to bac
 .kb-btn.hand-hover { border-color: var(--accent); color: #fff; } /* hand cursor is over it — pinch to click */
 .kb-btn[hidden] { display: none; }
 
+/* ===== shared settings menu (gear → slide-over panel) — settingsMenu.ts, all play scenes ===== */
+/* Gear button. Default is top-left (free on /characters + /pose). Scenes whose top-left/corner is
+   taken get a per-body override below — same pattern the fs/mute buttons use. */
+.settings-btn {
+  position: absolute; z-index: 30;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  left: calc(14px + env(safe-area-inset-left, 0px));
+  width: 34px; height: 34px; display: grid; place-items: center; padding: 0;
+  color: var(--dim); background: rgba(20, 20, 26, .55); border: 1px solid #2a2a32; border-radius: 8px; cursor: pointer;
+}
+.settings-btn:hover { color: var(--accent); border-color: var(--accent); }
+.settings-btn svg { width: 18px; height: 18px; }
+/* /game — top is the HUD, bottom-right is fs+mute; tuck the gear into that cluster (left of fullscreen). */
+body.game .settings-btn { top: auto; left: auto; right: 98px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
+/* /keyboard — fullscreen sits top-right; the gear goes just left of it. */
+body.kb .settings-btn { top: calc(12px + env(safe-area-inset-top, 0px)); left: auto; right: 56px; }
+
+/* Full-viewport scrim + slide-in panel (fixed to the viewport, above all scene chrome). */
+.settings-scrim {
+  position: fixed; inset: 0; z-index: 90; background: rgba(6, 6, 8, .55);
+  opacity: 0; visibility: hidden; transition: opacity .18s ease, visibility .18s;
+}
+.settings-scrim.open { opacity: 1; visibility: visible; }
+.settings-panel {
+  position: fixed; z-index: 91; top: 0; right: 0; height: 100%;
+  width: min(340px, 86vw); overflow-y: auto;
+  background: #0f0f13; border-left: 1px solid var(--line); box-shadow: -12px 0 40px rgba(0, 0, 0, .5);
+  transform: translateX(100%); transition: transform .22s cubic-bezier(.2, .8, .3, 1); visibility: hidden;
+  padding: calc(16px + env(safe-area-inset-top, 0px)) calc(18px + env(safe-area-inset-right, 0px)) calc(18px + env(safe-area-inset-bottom, 0px)) 18px;
+}
+.settings-panel.open { transform: translateX(0); visibility: visible; }
+.settings-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.settings-title { font: 400 18px/1 var(--display); letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
+.settings-close { width: 32px; height: 32px; display: grid; place-items: center; padding: 0;
+  color: var(--dim); background: transparent; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.settings-close:hover { color: var(--accent); border-color: var(--accent); }
+.settings-close svg { width: 16px; height: 16px; }
+.settings-panel .settings-row { margin: 18px 0; }
+.settings-panel .settings-row > label { display: block; color: var(--dim); margin-bottom: 6px; font-size: 12px; letter-spacing: .04em; }
+.settings-row.toggle { display: flex; align-items: center; justify-content: space-between; }
+.settings-row.toggle > label { margin: 0; }
+.settings-switch { width: 42px; height: 34px; display: grid; place-items: center; padding: 0; color: var(--accent);
+  background: rgba(20, 20, 26, .55); border: 1px solid #2a2a32; border-radius: 8px; cursor: pointer; }
+.settings-switch:hover { border-color: var(--accent); }
+.settings-switch.off { color: var(--danger); }
+.settings-switch svg { width: 18px; height: 18px; }
+.settings-hint { color: var(--dim); font-size: 11px; margin-top: 6px; line-height: 1.4; }
+/* narrow / portrait: dock as a bottom sheet instead of a right-side panel */
+@media (max-width: 640px), (orientation: portrait) {
+  .settings-panel {
+    top: auto; bottom: 0; left: 0; right: 0; width: auto; height: auto; max-height: 82dvh;
+    border-left: none; border-top: 1px solid var(--line); border-radius: 14px 14px 0 0;
+    box-shadow: 0 -12px 40px rgba(0, 0, 0, .5); transform: translateY(100%);
+  }
+  .settings-panel.open { transform: translateY(0); }
+}
+
 /* ---- per-phrase global leaderboard (src/keyboard.ts renderBoard) — an in-flow card ABOVE the keyboard
    (done screen). Capped height + scroll so a long board never pushes the keys off the bottom. */
 .kb-board { align-self: center; width: min(440px, 100%); max-height: 34dvh; overflow: auto;

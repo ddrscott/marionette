@@ -10,6 +10,7 @@ import { HandKeyboard } from "./handkeyboard.ts";
 import { makeCamDraggable } from "./dragCam.ts";
 import { ICON_FS_MAX, ICON_FS_MIN } from "./icons.ts";
 import { unlock, setMuted, sfx } from "./sound.ts";
+import { createSettingsMenu } from "./settingsMenu.ts";
 import { PHRASES } from "./phrases.ts";
 import { submitScore, type Score } from "./leaderboard.ts";
 
@@ -37,6 +38,9 @@ const cleanInitials = (raw: string): string => raw.toUpperCase().replace(/[^A-Z]
     const savedQuality = localStorage.getItem(LS_QUALITY);
     const tier: QualityTier = isQualityTier(savedQuality) ? savedQuality : DEFAULT_QUALITY;
     const hands = await initHands(video, { deviceId: localStorage.getItem(LS_DEVICE), tier });
+
+    // Standard app menu (gear → slide-over): camera + quality + sound (no play-area margin on /keyboard).
+    createSettingsMenu({ hands, sound: true, mount: $("kbstage") });
 
     // Mount the shared keyboard with the finger-to-thumb PINCH click. OK submits initials (initials
     // phase only); CLEAR wipes the current entry — during a round that redoes the phrase, during

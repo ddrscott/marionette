@@ -5,11 +5,12 @@ import { Stage, DEFAULT_GRAVITY } from "./engine.ts";
 import { Match, MAX_STRINGS, WINS_NEEDED, type GamePhase } from "./match.ts";
 import { LOADOUTS, DEFAULT_LOADOUT } from "./weapons.ts";
 import { isQualityTier, DEFAULT_QUALITY, type QualityTier } from "./hands.ts";
-import { unlock, audioReady, getMuted, setMuted, sfx } from "./sound.ts";
+import { unlock, audioReady, getMuted, setMuted, onMuteChange, sfx } from "./sound.ts";
 import { music } from "./music.ts";
 import { HandKeyboard, SYMBOL_CHARS } from "./handkeyboard.ts";
 import { makeCamDraggable } from "./dragCam.ts";
-import { ICON_FS_MAX, ICON_FS_MIN } from "./icons.ts";
+import { ICON_FS_MAX, ICON_FS_MIN, ICON_VOL_ON, ICON_VOL_OFF } from "./icons.ts";
+import { createSettingsMenu, loadMargin } from "./settingsMenu.ts";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -67,11 +68,7 @@ function renderHud(m: Match, initials: string): void {
 
 // --- audio (game-only): procedural WebAudio SFX + adaptive music, all off the render-critical path ---
 const LS_MUTED = "handbattle.audio.muted";
-const ICON_ON =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>';
-const ICON_OFF =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/></svg>';
-// Fullscreen icons live in ./icons.ts (shared with /keyboard).
+// Volume + fullscreen icons live in ./icons.ts (the volume pair is shared with the settings menu).
 
 // Fullscreen toggle button (Fullscreen API). Icon reflects state and stays in sync if the user
 // leaves fullscreen via Esc. Rejections (contexts that deny fullscreen) are swallowed.
@@ -100,10 +97,11 @@ function setupAudio(stage: Stage, match: Match): () => void {
 
   const reflectMute = (): void => {
     const m = getMuted();
-    if (muteBtn) { muteBtn.innerHTML = m ? ICON_OFF : ICON_ON; muteBtn.classList.toggle("off", m); }
+    if (muteBtn) { muteBtn.innerHTML = m ? ICON_VOL_OFF : ICON_VOL_ON; muteBtn.classList.toggle("off", m); }
   };
   setMuted(localStorage.getItem(LS_MUTED) === "1");
   reflectMute();
+  onMuteChange(reflectMute); // keep the corner button in sync when the settings menu toggles mute
   const toggleMute = (): void => { const m = !getMuted(); setMuted(m); localStorage.setItem(LS_MUTED, m ? "1" : "0"); reflectMute(); };
 
   // Unlock on the first real user gesture (WebAudio autoplay policy; a webcam frame is NOT a gesture).
@@ -169,6 +167,7 @@ function setupAudio(stage: Stage, match: Match): () => void {
     // Control points may cross the center line freely — the center WALL (blocking over-the-top) plus
     // the bottom opening now govern the fight, so the fingertips aren't clamped to a half.
     stage.clampHalf = false;
+    stage.playMargin = loadMargin(); // honor a margin previously set in the settings menu
 
     // Arm both fighters with a disjoint-weapon loadout — the blade reaches past the limb so you can cut
     // the opponent's strings while your own stay back (safe offense), and its mass makes a whiffed swing
@@ -204,6 +203,13 @@ function setupAudio(stage: Stage, match: Match): () => void {
     });
 
     setupFullscreen();
+    // Standard app menu (gear → slide-over): camera + quality + sound + play-area margin, anywhere.
+    createSettingsMenu({
+      hands: stage.hands,
+      sound: true,
+      margin: { get: () => stage.playMargin, set: (m) => { stage.playMargin = m; } },
+      mount: $("stage"),
+    });
     const audioTick = setupAudio(stage, match);
     let wasAwaiting = false;
     stage.onFrame = (now) => {

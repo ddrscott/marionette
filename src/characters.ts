@@ -16,6 +16,7 @@ import { Renderer, drawHands, teamColor, TEAM_TEAL } from "./draw.ts";
 import { HandCursor } from "./handCursor.ts";
 import { initHands, isQualityTier, DEFAULT_QUALITY, type QualityTier } from "./hands.ts";
 import { makeCamDraggable } from "./dragCam.ts";
+import { createSettingsMenu, loadMargin } from "./settingsMenu.ts";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -59,10 +60,17 @@ const gridCenter = (i: number, W: number): Vec2 => ({ x: (i % 5 - 2) * colGap(W)
     // Live tunables the Pilot reads (worldWidth refreshed each frame so a resize is picked up).
     const cfg: PilotCfg = {
       worldWidth: renderer.worldWidth,
-      playMargin: 0.10, swingRange: 1.0, smoothTime: 0.01,
+      playMargin: loadMargin(), swingRange: 1.0, smoothTime: 0.01,
       drag: DEFAULT_LINEAR_DAMPING,
       stiffness: DEFAULT_STRING_STIFFNESS, damping: DEFAULT_STRING_DAMPING, forceCap: DEFAULT_STRING_FORCE_CAP,
     };
+
+    // Standard app menu (gear → slide-over): camera + quality + play-area margin (no audio on /characters).
+    createSettingsMenu({
+      hands,
+      margin: { get: () => cfg.playMargin, set: (m) => { cfg.playMargin = m; } },
+      mount: $("charstage"),
+    });
 
     // ---- state ----
     let mode: "select" | "try" = "select";

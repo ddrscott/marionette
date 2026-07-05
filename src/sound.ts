@@ -32,9 +32,17 @@ export function getCtx(): AudioContext | null { return ctx; }
 export function getMaster(): GainNode | null { return master; }
 export function audioReady(): boolean { return !!(unlocked && ctx && ctx.state === "running"); }
 export function getMuted(): boolean { return muted; }
+// Subscribers (the /game corner mute button AND the settings-menu sound toggle) so a toggle from
+// EITHER surface — or the M key — reflects in both. Returns an unsubscribe.
+const muteListeners = new Set<(m: boolean) => void>();
+export function onMuteChange(cb: (m: boolean) => void): () => void {
+  muteListeners.add(cb);
+  return () => { muteListeners.delete(cb); };
+}
 export function setMuted(m: boolean): void {
   muted = m;
   if (master && ctx) master.gain.setTargetAtTime(m ? 0 : 1, ctx.currentTime, 0.02);
+  muteListeners.forEach((l) => l(m));
 }
 
 function out(): AudioNode | null { return master ?? ctx?.destination ?? null; }
