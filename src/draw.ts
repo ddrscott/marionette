@@ -277,9 +277,18 @@ export class Renderer {
   // ---- character-select helpers (/characters) — all sized in world units so they scale with the canvas ----
 
   // A character's name under its preview. `active` = currently hovered (brightens + accent colour).
-  drawLabel(worldX: number, worldY: number, text: string, accent: string, active: boolean): void {
+  // `maxWidthUnits` (optional): if the line would be wider than this many world units, the font is
+  // shrunk to fit — so single-line HUD text (e.g. /pose's status + controls hint) never clips off the
+  // edges of a narrow/portrait canvas. Omit it (the /characters callers do) to keep the fixed size.
+  drawLabel(worldX: number, worldY: number, text: string, accent: string, active: boolean, maxWidthUnits?: number): void {
     const { ctx } = this;
-    ctx.font = `${(active ? 0.44 : 0.36) * this.scale}px "Russo One", ui-monospace, monospace`;
+    let fontUnits = active ? 0.44 : 0.36;
+    ctx.font = `${fontUnits * this.scale}px "Russo One", ui-monospace, monospace`;
+    if (maxWidthUnits && maxWidthUnits > 0) {
+      const maxPx = maxWidthUnits * this.scale;
+      const w = ctx.measureText(text).width;
+      if (w > maxPx) { fontUnits *= maxPx / w; ctx.font = `${fontUnits * this.scale}px "Russo One", ui-monospace, monospace`; }
+    }
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillStyle = active ? accent : "rgba(216,212,204,0.7)";

@@ -1,6 +1,6 @@
 # Work Queue
 
-- [-] Pose scene supports portrait orientation — drop the "Rotate to landscape" lock on `/pose` and reflow the play area to fit the screen's aspect (taller/narrower in portrait, puppet + silhouette scale to fit); `/pose` only, other scenes unchanged, pose mechanics + soft-string physics preserved — see [pose-portrait.md](pose-portrait.md)
+- [x] Pose scene supports portrait orientation — drop the "Rotate to landscape" lock on `/pose` and reflow the play area to fit the screen's aspect (taller/narrower in portrait, puppet + silhouette scale to fit); `/pose` only, other scenes unchanged, pose mechanics + soft-string physics preserved — see [pose-portrait.md](pose-portrait.md)
 
 - [x] Soft goal-drive strings (capped-force) so limbs can never be pulled off the puppet — replace the rigid finger→limb chain + `JointData.rope` with a capped, damped spring force dragging each limb toward its fingertip GOAL (force cap below the body's ball-joint strength = no rip), string drawn as a light line pointing at the fingertip; everywhere (`engine.ts` + `pilot.ts`), harness sliders for stiffness/damping/cap, cut/detach + anti-seizure invariants preserved — see [soft-string-goal-drive.md](soft-string-goal-drive.md)
 

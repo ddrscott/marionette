@@ -179,8 +179,10 @@ const wrapAbs = (d: number): number => Math.abs(Math.atan2(Math.sin(d), Math.cos
         }
       }
 
-      // HUD
-      renderer.drawLabel(0, 11.3, "MARIONETTE POSE", TEAM_TEAL, true);
+      // HUD — pass the visible world width so single-line labels shrink to fit a narrow/portrait
+      // canvas instead of clipping off the edges (see Renderer.drawLabel maxWidthUnits).
+      const hudMax = renderer.worldWidth - 0.8;
+      renderer.drawLabel(0, 11.3, "MARIONETTE POSE", TEAM_TEAL, true, hudMax);
       const inCount = lastInZone.filter(Boolean).length;
       const elapsed = solved ? clearMs : (running && target ? now - startT : 0);
       const status =
@@ -188,10 +190,10 @@ const wrapAbs = (d: number): number => Math.abs(Math.atan2(Math.sin(d), Math.cos
         : !target ? "N: pick a pose · C: capture your own"
         : solved ? `LOCKED  ${(clearMs / 1000).toFixed(2)}s   ·   N: next pose`
         : `${(elapsed / 1000).toFixed(1)}s   ·   ${inCount}/5 in the outline   ·   fill it, then hold`;
-      renderer.drawLabel(0, 10.72, status, solved ? "#7bd88f" : "#9a968e", solved);
+      renderer.drawLabel(0, 10.72, status, solved ? "#7bd88f" : "#9a968e", solved, hudMax);
       renderer.drawLabel(0, 0.5,
         `pose ${target ? BUILTINS[builtinIdx].name : "—"}  ·  tol ${posTol.toFixed(2)} ([ ])  ·  angle ${angleOn ? "on" : "off"} (A)  ·  N next  ·  C capture  ·  R restart`,
-        "#6b7280", false);
+        "#6b7280", false, hudMax);
 
       drawHands(overlayCtx, camOverlay.width, camOverlay.height, [lm], [TEAM_TEAL]);
       requestAnimationFrame(loop);

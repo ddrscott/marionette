@@ -6,7 +6,7 @@
   <title>Marionette — Pose</title>
   <link rel="stylesheet" href="/src/style.css" />
 </head>
-<body class="chars">
+<body class="pose">
   <div id="charstage">
     <canvas id="scene"></canvas>
 
@@ -20,12 +20,7 @@
     <div id="boot">loading model + physics&hellip;</div>
   </div>
 
-  <!-- portrait-lock: shown (via CSS) only on touch devices held in portrait -->
-  <div class="rotate-gate">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg>
-    <div class="rg-title">Rotate to landscape</div>
-    <div class="rg-sub">turn your device sideways to play</div>
-  </div>
+  <!-- NOTE: no portrait-lock here — /pose reflows to fit any aspect (see body.pose in style.css). -->
 
   <script type="module" src="/src/pose.ts"></script>
 </body>

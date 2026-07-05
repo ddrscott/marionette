@@ -256,6 +256,25 @@ body.chars #charstage {
   box-shadow: 0 0 0 1px var(--line), 0 0 60px rgba(0, 0, 0, .7);
 }
 body.chars #camBox { right: auto; left: 50%; bottom: 10px; transform: translateX(-50%); width: 150px; height: 112px; opacity: .5; border-color: #2a2a32; }
+
+/* ---- /pose — REFLOW-TO-FIT stage: fills the WHOLE viewport in any aspect (portrait or landscape).
+   Unlike /game and /characters, /pose has NO 16:10 letterbox and NO portrait-rotate lock — the renderer
+   (src/draw.ts) keys world scale off the real canvas size (world height fixed at 12 units, width flexes
+   with the canvas), so the puppet + chalk-outline silhouette scale to fill whatever aspect the device
+   has and the built-in/captured poses stay reachable. A portrait phone just gets a taller, narrower
+   play area with a proportionally bigger puppet. ---- */
+body.pose { overflow: hidden; display: block; background: var(--bg); height: 100vh; height: 100dvh; }
+body.pose #charstage {
+  position: relative;
+  width: 100vw;
+  height: 100vh; height: 100dvh;
+  container-type: size;
+  background: radial-gradient(ellipse at 50% 32%, #17171f 0%, #0a0a0d 72%);
+}
+/* keep the draggable self-view compact + clear of the HUD on a narrow portrait phone */
+@media (orientation: portrait) and (max-width: 820px) {
+  body.pose #camBox { width: 150px; height: 112px; opacity: .6; }
+}
 /* The keyboard is the LOWEST element; everything else stacks ABOVE it. Flex column + one gap gives a
    consistent vertical rhythm (no ad-hoc per-element margins); align-stretch lets the key grid fill width. */
 .kb-wrap { width: min(94vw, 820px); margin-inline: auto; display: flex; flex-direction: column; align-items: stretch;
