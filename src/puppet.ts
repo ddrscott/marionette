@@ -115,6 +115,12 @@ export interface Capsule {
   neutral: Vec2; // this part's home offset from the torso center — the neutral pose reposePuppet resets to
   neutralRot: number; // this part's home z-rotation (radians) — a canted arm / horizontal body / coil link
   weapon?: Weapon;    // a bolted-on blade (disjoint reach), if this part is a weapon arm — see armPuppet
+  // The internal spherical joint that hangs this part off the ROOT/torso — the SINGLE source of truth for
+  // where this limb roots. `torsoAnchor` is the socket point in the root's local frame; `limbAnchor` is the
+  // matching point in THIS part's local frame (near its top). A limb can only rotate about this socket, so
+  // /pose targets anchor each silhouette limb here (see pose.ts silParts) instead of floating it at a free
+  // center — that's what makes every target pose physically reachable. Undefined on the root (no socket).
+  socket?: { torsoAnchor: Vec2; limbAnchor: Vec2 };
 }
 
 // The humanoid part ids, plus ANY string id so bespoke rigs (see rigs.ts / buildRig) can name their
@@ -311,15 +317,28 @@ export function addPuppet(
   // team colour (rust = left / P1, teal = right / P2, applied in draw.ts). Keeps a clean duotone.
   const BONE = "#d8d4cc";   // torso / head
   const LIMB = "#9a968e";   // arms + legs, muted warm gray
+  // Per-limb socket anchors — the SINGLE source of truth used by BOTH the spherical joints below AND the
+  // socket recorded on each Capsule (so /pose targets root limbs exactly where the rig does). Legs socket
+  // at torso-local y:-0.6 (a touch BELOW the torso bottom at -0.5) so they hang from lower on the body;
+  // the leg spawn (torsoCY - 1.05) keeps limbAnchor(+0.45) meeting the socket at rest (no pre-stretch:
+  // -1.05 + 0.45 = -0.6). If this moves, update tools/soft-string.ts SOCKETS + re-run the guard.
+  const ARM_LA = { x: 0, y: 0.4 }, LEG_LA = { x: 0, y: 0.45 };
+  const ARM_TA_L = { x: -0.3, y: 0.3 }, ARM_TA_R = { x: 0.3, y: 0.3 };
+  const LEG_TA_L = { x: -0.15, y: -0.6 }, LEG_TA_R = { x: 0.15, y: -0.6 };
   const torso = limb(X + 0, torsoCY, torsoHalf, 0.25, 1.4, BONE);
   const lArm = limb(X - 0.3, torsoCY - 0.1, 0.4, 0.12, 1.0, LIMB);
   const rArm = limb(X + 0.3, torsoCY - 0.1, 0.4, 0.12, 1.0, LIMB);
-  spherical(RAPIER, world, torso, { x: -0.3, y: 0.3 }, lArm, { x: 0, y: 0.4 });
-  spherical(RAPIER, world, torso, { x:  0.3, y: 0.3 }, rArm, { x: 0, y: 0.4 });
-  const lLeg = limb(X - 0.15, torsoCY - 0.95, 0.45, 0.14, 1.1, LIMB);
-  const rLeg = limb(X + 0.15, torsoCY - 0.95, 0.45, 0.14, 1.1, LIMB);
-  spherical(RAPIER, world, torso, { x: -0.15, y: -0.5 }, lLeg, { x: 0, y: 0.45 });
-  spherical(RAPIER, world, torso, { x:  0.15, y: -0.5 }, rLeg, { x: 0, y: 0.45 });
+  spherical(RAPIER, world, torso, ARM_TA_L, lArm, ARM_LA);
+  spherical(RAPIER, world, torso, ARM_TA_R, rArm, ARM_LA);
+  const lLeg = limb(X - 0.15, torsoCY - 1.05, 0.45, 0.14, 1.1, LIMB);
+  const rLeg = limb(X + 0.15, torsoCY - 1.05, 0.45, 0.14, 1.1, LIMB);
+  spherical(RAPIER, world, torso, LEG_TA_L, lLeg, LEG_LA);
+  spherical(RAPIER, world, torso, LEG_TA_R, rLeg, LEG_LA);
+  // Record each limb's socket (index order torso,lArm,rArm,lLeg,rLeg) — pose.ts reads these live.
+  parts[1].socket = { torsoAnchor: ARM_TA_L, limbAnchor: ARM_LA };
+  parts[2].socket = { torsoAnchor: ARM_TA_R, limbAnchor: ARM_LA };
+  parts[3].socket = { torsoAnchor: LEG_TA_L, limbAnchor: LEG_LA };
+  parts[4].socket = { torsoAnchor: LEG_TA_R, limbAnchor: LEG_LA };
 
   // Record each part's offset from the torso center — the NEUTRAL pose. reposePuppet resets to this
   // (instead of carrying over a crumpled floor pose) so strings always attach to a clean hang.

@@ -15,7 +15,7 @@ import {
   buildWorld, addPuppet, reposePuppet, setPuppetWeight,
   RIGHT_HAND_BINDING, DEFAULT_PUPPET_WEIGHT,
   DEFAULT_STRING_STIFFNESS, DEFAULT_STRING_FORCE_CAP,
-  type Vec2, type FingerBind, type TargetName,
+  type Vec2, type FingerBind, type TargetName, type Puppet,
 } from "./puppet.ts";
 import { Pilot, type PilotCfg } from "./pilot.ts";
 import { Renderer, drawHands, teamColor, TEAM_TEAL, type PoseSilPart } from "./draw.ts";
@@ -42,11 +42,14 @@ const SIL_HALF_PAD = 0.12;
 // A pose = per-part {x,y,angle} (index order: torso, lArm, rArm, lLeg, rLeg).
 type PoseNode = { x: number; y: number; angle: number };
 
-// Built-in target poses as per-part OFFSETS from the root (+y up), index order torso,lArm,rArm,lLeg,rLeg.
-// `rot` (radians) turns the WHOLE figure — offsets AND the torso's orientation — so a pose can be
-// sideways (±quarter-turn) or upside-down (half-turn), not just the natural "pulled-from-above" up/out
-// shapes. Each limb's ANGLE is derived radially from its (rotated) offset, so it follows the turn for
-// free; only the root/torso needs its angle set to `rot` explicitly.
+// Built-in target poses. A pose is a TORSO node (position = PLACE, rotation = `rot`) plus, per limb, the
+// DIRECTION it points from its socket. We author each limb's direction with a familiar (dx,dy) OFFSET
+// vector, but only its ANGLE is used — the limb's POSITION is derived anatomically from the rig's real
+// socket (see anchorPose), never from the offset magnitude. That's the fix: previously the offset WAS the
+// limb center, so a limb (esp. a leg) could float where no socketed limb can reach. Now every target limb
+// roots exactly on the puppet's actual socket, so the pose is always physically reachable.
+// `rot` (radians) turns the WHOLE figure — the torso orientation AND every limb direction (each limb angle
+// is its offset direction + rot) — so a pose can be sideways (±quarter-turn) or upside-down (half-turn).
 const STAR_OFFS: Vec2[] = [{ x: 0, y: 0 }, { x: -1.0, y: 0.5 }, { x: 1.0, y: 0.5 }, { x: -0.8, y: -1.2 }, { x: 0.8, y: -1.2 }];
 const BUILTINS: { name: string; offs: Vec2[]; rot?: number }[] = [
   { name: "STAR",  offs: STAR_OFFS },
@@ -59,17 +62,35 @@ const BUILTINS: { name: string; offs: Vec2[]; rot?: number }[] = [
   { name: "LEAN",   offs: [{ x: 0, y: 0 }, { x: -0.7, y: 0.8 }, { x: 0.9, y: 0.4 }, { x: -0.6, y: -1.1 }, { x: 0.5, y: -1.2 }], rot: Math.PI / 5 },
   { name: "TUMBLE", offs: STAR_OFFS, rot: Math.PI },
 ];
-// z-angle whose capsule free-end points along (dx,dy) — i.e. radially outward from the root.
+// z-angle whose capsule free-end (tip, local (0,-half)) points along (dx,dy) — radially outward from the root.
 const radialAngle = (dx: number, dy: number): number => (dx === 0 && dy === 0 ? 0 : Math.atan2(dx, -dy));
-const builtinPose = (i: number): PoseNode[] => {
-  const b = BUILTINS[i];
-  const rot = b.rot ?? 0;
+// World point of a torso-LOCAL anchor given the torso node's transform (position + z-rotation).
+const socketWorld = (root: PoseNode, a: Vec2): Vec2 => {
+  const c = Math.cos(root.angle), s = Math.sin(root.angle);
+  return { x: root.x + a.x * c - a.y * s, y: root.y + a.x * s + a.y * c };
+};
+// Turn an authored pose (torso node + per-limb DIRECTION offsets) into anatomically-anchored PoseNodes.
+// For each limb: point it at `limbAngle` (its offset direction, turned by the figure's rot) and place its
+// center so its LIMB-LOCAL socket anchor lands EXACTLY on the torso's socket world point:
+//   center = socketWorld − R(limbAngle)·limbAnchor.
+// Socket geometry is read LIVE from the puppet (Capsule.socket) so if the rig changes, the targets follow.
+// A part with no socket (the torso, or an exotic rig part) falls back to the free offset placement.
+const anchorPose = (puppet: Puppet, offs: Vec2[], rot: number): PoseNode[] => {
   const c = Math.cos(rot), s = Math.sin(rot);
-  return b.offs.map((o, idx) => {
-    const rx = o.x * c - o.y * s, ry = o.x * s + o.y * c; // rotate the offset about the root
-    return { x: PLACE.x + rx, y: PLACE.y + ry, angle: idx === ROOT_I ? rot : radialAngle(rx, ry) };
+  const root: PoseNode = { x: PLACE.x + (offs[ROOT_I].x * c - offs[ROOT_I].y * s), y: PLACE.y + (offs[ROOT_I].x * s + offs[ROOT_I].y * c), angle: rot };
+  return offs.map((o, idx) => {
+    if (idx === ROOT_I) return root;
+    const rx = o.x * c - o.y * s, ry = o.x * s + o.y * c; // limb DIRECTION, turned by rot
+    const limbAngle = radialAngle(rx, ry);
+    const sock = puppet.parts[idx]?.socket;
+    if (!sock) return { x: PLACE.x + rx, y: PLACE.y + ry, angle: limbAngle }; // fallback (no socket data)
+    const sw = socketWorld(root, sock.torsoAnchor);
+    const ca = Math.cos(limbAngle), sa = Math.sin(limbAngle);
+    const la = sock.limbAnchor;
+    return { x: sw.x - (la.x * ca - la.y * sa), y: sw.y - (la.x * sa + la.y * ca), angle: limbAngle };
   });
 };
+const builtinPose = (puppet: Puppet, i: number): PoseNode[] => anchorPose(puppet, BUILTINS[i].offs, BUILTINS[i].rot ?? 0);
 
 const wrapAbs = (d: number): number => Math.abs(Math.atan2(Math.sin(d), Math.cos(d)));
 
@@ -163,7 +184,7 @@ const loadTargets = (): string[] => {
     });
 
     // ---- pose-match state ----
-    let target: PoseNode[] | null = builtinPose(0);
+    let target: PoseNode[] | null = builtinPose(puppet, 0);
     let builtinIdx = 0;
     let posTol = 0.5;             // position tolerance (world units) — tune with [ ]
     const ANG_TOL = 0.6;          // orientation tolerance (rad, ~34°) when angle matching is on
@@ -190,7 +211,7 @@ const loadTargets = (): string[] => {
 
     addEventListener("keydown", (e) => {
       const k = e.key.toLowerCase();
-      if (k === "n") { builtinIdx = (builtinIdx + 1) % BUILTINS.length; setTarget(builtinPose(builtinIdx)); }
+      if (k === "n") { builtinIdx = (builtinIdx + 1) % BUILTINS.length; setTarget(builtinPose(puppet, builtinIdx)); }
       else if (k === "c") {
         const nodes = liveNodes();
         setTarget(nodes.map((n) => ({ ...n })));

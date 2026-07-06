@@ -45,8 +45,8 @@ const mean = (a: number[]) => a.reduce((s, x) => s + x, 0) / a.length;
 const SOCKETS = [
   { limb: "lArm", ta: { x: -0.30, y: 0.30 }, la: { x: 0, y: 0.40 } },
   { limb: "rArm", ta: { x: 0.30, y: 0.30 }, la: { x: 0, y: 0.40 } },
-  { limb: "lLeg", ta: { x: -0.15, y: -0.50 }, la: { x: 0, y: 0.45 } },
-  { limb: "rLeg", ta: { x: 0.15, y: -0.50 }, la: { x: 0, y: 0.45 } },
+  { limb: "lLeg", ta: { x: -0.15, y: -0.60 }, la: { x: 0, y: 0.45 } },
+  { limb: "rLeg", ta: { x: 0.15, y: -0.60 }, la: { x: 0, y: 0.45 } },
 ];
 function maxSocketSep(p: Puppet): number {
   const torso = p.partByTarget.torso;
