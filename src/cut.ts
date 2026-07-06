@@ -77,10 +77,11 @@ function kill(stage: Stage, slot: 0 | 1, cs: RulesState): void {
 // The limbs (arms + legs) of a puppet — its weapons, and what can clash with the other puppet.
 const limbsOf = (p: Puppet): Capsule[] => p.parts.filter((c) => c.body !== p.torso);
 
-// Detect the two puppets' limbs colliding. The engine keeps each puppet in its own collision group
-// (they pass through each other), so there are no contact events to read — instead we sample each
-// limb's tip + center and ring when any cross-puppet pair is within CLASH_DIST while actually moving.
-// Throttled by a shared cooldown so a sustained overlap doesn't machine-gun.
+// Detect the two puppets' limbs colliding. We don't read Rapier contact events (the puppets now DO
+// collide physically via per-player groups, but the clash *ring* wants to fire on a fast pass even at
+// the moment of contact, not only on a resolved penetration) — instead we sample each limb's tip +
+// center and ring when any cross-puppet pair is within CLASH_DIST while actually moving. Throttled by
+// a shared cooldown so a sustained overlap doesn't machine-gun.
 function detectClash(stage: Stage, cs: RulesState, now: number, ev?: CutEvents): void {
   if (!ev?.onClash) return;
   if (now - cs.lastClashAt < CLASH_COOLDOWN_MS) return;

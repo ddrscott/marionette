@@ -1,6 +1,6 @@
 # Work Queue
 
-- [-] Puppets collide with each other (no passthrough) — replace the single shared `PUPPET_GROUP` (both players + weapons in one group, mask=floor only) with per-player collision groups so the two `/game` puppets can't pass through one another; bodies + weapons collide with the OPPONENT, self-collision stays OFF (no limb jam / seizure regression), strings still cut legitimately, `/characters` + `/pose` unaffected — see [puppet-collision.md](puppet-collision.md)
+- [x] Puppets collide with each other (no passthrough) — replace the single shared `PUPPET_GROUP` (both players + weapons in one group, mask=floor only) with per-player collision groups so the two `/game` puppets can't pass through one another; bodies + weapons collide with the OPPONENT, self-collision stays OFF (no limb jam / seizure regression), strings still cut legitimately, `/characters` + `/pose` unaffected — see [puppet-collision.md](puppet-collision.md)
 
 - [x] Pose scene supports portrait orientation — drop the "Rotate to landscape" lock on `/pose` and reflow the play area to fit the screen's aspect (taller/narrower in portrait, puppet + silhouette scale to fit); `/pose` only, other scenes unchanged, pose mechanics + soft-string physics preserved — see [pose-portrait.md](pose-portrait.md)
 

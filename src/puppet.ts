@@ -35,9 +35,32 @@ export const DEFAULT_STRING_FORCE_CAP = 60;  // the no-rip cap: max pull accel (
 
 export const CENTER_STRING_LEN = 6.2; // head string length -> 51.7% of a 12u view (> 50% required)
 
-// Collision filtering (high 16 = membership, low 16 = mask of groups it collides with).
-const PUPPET_GROUP = 0x00010002; // member group 0, collides with group 1 (floor)
-const FLOOR_GROUP  = 0x00020001; // member group 1, collides with group 0 (puppet)
+// Collision filtering (Rapier: high 16 bits = membership groups, low 16 bits = mask of groups it
+// collides with; A and B collide iff (A.mem & B.mask) && (B.mem & A.mask)). We use THREE bits so the
+// two /game puppets can be solid against EACH OTHER without becoming solid against THEMSELVES:
+//   bit 0 = floor / center wall (the environment)
+//   bit 1 = player 0's puppet + its weapons
+//   bit 2 = player 1's puppet + its weapons
+// Each puppet's membership is its OWN player bit; its mask is floor + the OPPONENT's bit — so it hits
+// the floor and the other puppet, but NOT itself. Self-collision stays OFF: a puppet's jointed limbs
+// keep overlapping freely (no limb jam / no attach-seizure regression). Weapons carry their owner's
+// player bit too (armPuppet), so a blade is blocked by the OPPONENT's body but passes its own puppet.
+// Single-puppet scenes (/characters, /pose) just take player 0's group; with no player-1 collider
+// present they collide only with the floor, exactly as before.
+const FLOOR_BIT = 0x0001;
+const PLAYER_BITS = [0x0002, 0x0004]; // player 0, player 1
+
+// The collision-group value for a puppet in the given player slot (0 or 1). An out-of-range index
+// falls back to player 0's bit, which is still self-safe (mask never includes its own membership bit).
+export function puppetGroupFor(playerIndex: number): number {
+  const self = PLAYER_BITS[playerIndex] ?? PLAYER_BITS[0];
+  const opponent = PLAYER_BITS[playerIndex === 1 ? 0 : 1];
+  const mask = FLOOR_BIT | opponent; // floor + the OTHER puppet, never `self`
+  return (self << 16) | mask;
+}
+
+// Floor / center wall: member = floor bit, collides with BOTH players' bits.
+const FLOOR_GROUP = (FLOOR_BIT << 16) | (PLAYER_BITS[0] | PLAYER_BITS[1]);
 
 // Floor: static shelf near the bottom so a lowered control rests the puppet on-screen.
 export const FLOOR_TOP = 0.8;
@@ -183,6 +206,7 @@ export interface Puppet {
   homeTorso: Vec2;                 // torso center at scene setup — the neutral pose it's held at while waiting
   rootId: TargetName;              // the anchor part (id of parts[0]) — homeTorso positions THIS part
   loadout: WeaponDef[];            // the weapons this puppet is armed with — kept so a round reset re-arms
+  collisionGroup: number;          // this puppet's Rapier collision group (its player bit) — weapons share it
 }
 
 // Create the shared world ONCE. The game/harness get a floor + center divider wall (defaults); the
@@ -264,13 +288,14 @@ export function addPuppet(
   world: RAPIER_NS.World,
   xOffset: number,
   binding: FingerBind[],
+  group: number = puppetGroupFor(0),
 ): Puppet {
   const parts: Capsule[] = [];
   const limb = (cx: number, cy: number, half: number, rad: number, density: number, color: string) => {
     const body = world.createRigidBody(dynDesc(RAPIER, cx, cy));
     body.enableCcd(true); // string-driven parts move fast; CCD stops them tunneling through the thin wall
     const collider = world.createCollider(
-      RAPIER.ColliderDesc.capsule(half, rad).setDensity(density).setCollisionGroups(PUPPET_GROUP),
+      RAPIER.ColliderDesc.capsule(half, rad).setDensity(density).setCollisionGroups(group),
       body,
     );
     parts.push({ body, half, rad, color, collider, baseDensity: density, neutral: { x: 0, y: 0 }, neutralRot: 0 });
@@ -311,7 +336,7 @@ export function addPuppet(
     );
   });
 
-  return { controls, parts, torso, partByTarget, strings: [], binding, xOffset, homeTorso: { x: tp.x, y: tp.y }, rootId: "torso", loadout: [] };
+  return { controls, parts, torso, partByTarget, strings: [], binding, xOffset, homeTorso: { x: tp.x, y: tp.y }, rootId: "torso", loadout: [], collisionGroup: group };
 }
 
 // ---- data-driven rigs (the character roster) --------------------------------------------------
@@ -329,7 +354,7 @@ export interface RigDef { name: string; accent: string; parts: PartDef[]; joints
 
 // Build a bespoke rig at world `center` (the root part's center). Same shape as addPuppet's humanoid,
 // so everything downstream (reposePuppet, attach ritual, cut, draw) treats it identically.
-export function buildRig(RAPIER: typeof RAPIER_NS, world: RAPIER_NS.World, center: Vec2, def: RigDef): Puppet {
+export function buildRig(RAPIER: typeof RAPIER_NS, world: RAPIER_NS.World, center: Vec2, def: RigDef, group: number = puppetGroupFor(0)): Puppet {
   const parts: Capsule[] = [];
   const byId: Record<string, RAPIER_NS.RigidBody> = {};
   for (const pd of def.parts) {
@@ -337,7 +362,7 @@ export function buildRig(RAPIER: typeof RAPIER_NS, world: RAPIER_NS.World, cente
     const body = world.createRigidBody(dynDesc(RAPIER, center.x + pd.dx, center.y + pd.dy, rot));
     body.enableCcd(true);
     const collider = world.createCollider(
-      RAPIER.ColliderDesc.capsule(pd.half, pd.rad).setDensity(pd.density).setCollisionGroups(PUPPET_GROUP),
+      RAPIER.ColliderDesc.capsule(pd.half, pd.rad).setDensity(pd.density).setCollisionGroups(group),
       body,
     );
     // dx/dy are already relative to the root, so they ARE the neutral offset reposePuppet resets to;
@@ -358,7 +383,7 @@ export function buildRig(RAPIER: typeof RAPIER_NS, world: RAPIER_NS.World, cente
   const root = def.parts[0];
   return {
     controls, parts, torso: byId[root.id], partByTarget, strings: [], binding: def.binding,
-    xOffset: center.x, homeTorso: { x: center.x, y: center.y }, rootId: root.id, loadout: [],
+    xOffset: center.x, homeTorso: { x: center.x, y: center.y }, rootId: root.id, loadout: [], collisionGroup: group,
   };
 }
 
@@ -529,7 +554,8 @@ export const isArmed = (puppet: Puppet): boolean =>
 // PAST the tip along the limb axis, and stash it on the limb's Capsule. Rebuilds from scratch each
 // call (clearing any existing weapon colliders first), so it also RE-ARMS blades a disarm dropped —
 // call it at round start. The collider density is the commitment mass; body mass is recomputed to
-// include it. The weapon shares PUPPET_GROUP, so the center divider wall still blocks it.
+// include it. The weapon carries its owner puppet's collision group (its player bit), so the center
+// divider wall + floor still block it AND it's blocked by the OPPONENT's body — but never its own puppet.
 export function armPuppet(RAPIER: typeof RAPIER_NS, world: RAPIER_NS.World, puppet: Puppet, defs: WeaponDef[]): void {
   for (const part of puppet.parts) {
     if (part.weapon) {
@@ -549,7 +575,7 @@ export function armPuppet(RAPIER: typeof RAPIER_NS, world: RAPIER_NS.World, pupp
       RAPIER.ColliderDesc.capsule(halfLen, def.thickness)
         .setDensity(def.density)
         .setTranslation(0, -(part.half + halfLen), 0) // local: centered just past the limb tip
-        .setCollisionGroups(PUPPET_GROUP),
+        .setCollisionGroups(puppet.collisionGroup),
       body,
     );
     part.weapon = { def, collider, disarmed: false };

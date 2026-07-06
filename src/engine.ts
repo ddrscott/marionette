@@ -9,7 +9,7 @@ import { OneEuro } from "./oneEuro.ts";
 import {
   buildWorld, addPuppet, setDamping, setPuppetWeight,
   reposePuppet, attachStringForSlot, detachAllStrings, stillParts, armPuppet, driveStrings,
-  FINGERTIPS, bindingForHandedness, PUPPET_X_OFFSET, RIGHT_HAND_BINDING, LEFT_HAND_BINDING,
+  FINGERTIPS, bindingForHandedness, puppetGroupFor, PUPPET_X_OFFSET, RIGHT_HAND_BINDING, LEFT_HAND_BINDING,
   DEFAULT_LINEAR_DAMPING, DEFAULT_ANGULAR_DAMPING, DEFAULT_PUPPET_WEIGHT,
   DEFAULT_STRING_STIFFNESS, DEFAULT_STRING_DAMPING, DEFAULT_STRING_FORCE_CAP,
   WORLD_VIEW_HEIGHT, FLOOR_TOP, WALL_HALF_W, type Puppet, type FingerBind, type TargetName, type WeaponDef,
@@ -198,9 +198,11 @@ export class Stage {
     // QUARTERS for balanced initial spacing, not bunched near center. Derived from the visible world
     // width at load; floored at PUPPET_X_OFFSET so a narrow/portrait window doesn't crowd them.
     const offset = Math.max(PUPPET_X_OFFSET, renderer.worldWidth / 4);
+    // Slot 0 = left puppet = player 0's collision group; slot 1 = right = player 1's. Per-player
+    // groups make the two puppets (and their weapons) solid against EACH OTHER, never themselves.
     const puppets = [
-      addPuppet(RAPIER, world, -offset, LEFT_HAND_BINDING),
-      addPuppet(RAPIER, world, +offset, RIGHT_HAND_BINDING),
+      addPuppet(RAPIER, world, -offset, LEFT_HAND_BINDING, puppetGroupFor(0)),
+      addPuppet(RAPIER, world, +offset, RIGHT_HAND_BINDING, puppetGroupFor(1)),
     ];
     const hands = await initHands(opts.video, opts.camera ?? {});
     const stage = new Stage(world, puppets, renderer, hands, opts.camOverlay, gravityY);
