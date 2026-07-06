@@ -187,8 +187,10 @@ const gridCenter = (i: number, W: number): Vec2 => ({ x: (i % 5 - 2) * colGap(W)
           return true;
         });
 
-        renderer.drawPuppet(chosen);
         const ph = pilot.phase;
+        // Only draw the numbered control discs once "running"; during waiting/attaching drawFingerPoints
+        // (below) is the single numbered set, so the 1..5 discs never double up.
+        renderer.drawPuppet(chosen, ph === "running");
         if (ph === "waiting" || ph === "attaching") {
           renderer.drawPrompt(chosen.xOffset, 0, pilot.steadyProgress(now), now);
           if (ph === "attaching" && pilot.present) {

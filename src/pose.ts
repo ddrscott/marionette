@@ -244,9 +244,11 @@ const loadTargets = (): string[] => {
         const hold = running && !solved && holdStart >= 0 ? Math.min(1, (now - holdStart) / HOLD_POSE_MS) : solved ? 1 : 0;
         renderer.drawPoseTarget(silParts(), lastInZone.length ? lastInZone : target.map(() => false), ROOT_I, hold);
       }
-      renderer.drawPuppet(puppet);
-
       const ph = pilot.phase;
+      // Only draw the numbered control discs once "running"; during waiting/attaching drawFingerPoints
+      // (below) is the single numbered set, so the 1..5 discs never double up.
+      renderer.drawPuppet(puppet, ph === "running");
+
       if (ph === "waiting" || ph === "attaching") {
         renderer.drawPrompt(puppet.xOffset, 0, pilot.steadyProgress(now), now);
         if (ph === "attaching" && pilot.present) {

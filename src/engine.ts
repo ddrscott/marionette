@@ -355,7 +355,11 @@ export class Stage {
       case "attaching":
         if (absent || (h.present && maxPtDist(h.pos, st.captured) > ATTACH_MARGIN)) { this.resetToWaiting(slot); break; }
         reposePuppet(p, st.attachTorso);
-        for (const s of p.strings) s.control.setNextKinematicTranslation({ x: st.captured[s.slot].x, y: st.captured[s.slot].y, z: 0 });
+        // Drive each attached string's control to the LIVE fingertip (not the frozen capture) so the
+        // strings visibly track the moving fingers as they snap on. `st.captured` stays the reference
+        // for the reset-on-move gate above; it no longer pins the controls. nominalLen is still
+        // captured at the held pose inside attachStringForSlot, so the anti-seizure handoff is unchanged.
+        for (const s of p.strings) s.control.setNextKinematicTranslation({ x: h.pos[s.slot].x, y: h.pos[s.slot].y, z: 0 });
         {
           const due = Math.min(ATTACH_ORDER.length, Math.floor((now - st.attachT0) / ATTACH_STRING_MS) + 1);
           while (st.attached < due) {
@@ -454,9 +458,11 @@ export class Stage {
     const r = this.renderer;
     r.clear();
     for (let s = 0 as 0 | 1; s <= 1; s = (s + 1) as 0 | 1) {
-      r.drawPuppet(this.puppets[s]);
       const st = this.slotStates[s];
       const ph = st.phase;
+      // Only draw the numbered control discs once "running"; during the attach ritual drawFingerPoints
+      // (below) is the single numbered set, so the 1..5 discs never double up.
+      r.drawPuppet(this.puppets[s], ph === "running");
       // Keep the hand outline + live points up through the WHOLE attach (until `running`), so the
       // player holds still until the last string snaps on instead of moving the moment the hold ends.
       // The bar stays full during `attaching` (the strings visibly snapping on carry the progress).

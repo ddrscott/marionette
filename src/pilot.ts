@@ -136,7 +136,11 @@ export class Pilot {
       case "attaching":
         if (absent || (this.present && maxPtDist(this.pos, this.captured) > ATTACH_MARGIN)) { this.reset(); break; }
         reposePuppet(p, this.attachTorso);
-        for (const s of p.strings) s.control.setNextKinematicTranslation({ x: this.captured[s.slot].x, y: this.captured[s.slot].y, z: 0 });
+        // Drive each attached string's control to the LIVE fingertip (not the frozen capture) so the
+        // strings visibly track the moving fingers as they snap on. `captured` stays the reference for
+        // the reset-on-move gate above; it no longer pins the controls. nominalLen is still captured at
+        // the held pose inside attachStringForSlot, so the anti-seizure handoff force is unchanged.
+        for (const s of p.strings) s.control.setNextKinematicTranslation({ x: this.pos[s.slot].x, y: this.pos[s.slot].y, z: 0 });
         {
           const due = Math.min(ATTACH_ORDER.length, Math.floor((now - this.attachT0) / ATTACH_STRING_MS) + 1);
           while (this.attached < due) {

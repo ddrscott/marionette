@@ -118,7 +118,10 @@ export class Renderer {
   }
 
   // Draw one puppet (strings + capsules + control discs). Does NOT clear — call clear() first.
-  drawPuppet(rig: Puppet): void {
+  // `showControls` (default true) draws the numbered 1..5 control discs at each string's control
+  // point. Callers SUPPRESS it during the attach ritual (waiting/attaching) so the ONLY numbered set
+  // on screen is `drawFingerPoints` at the live fingertips — otherwise the two sets double up.
+  drawPuppet(rig: Puppet, showControls = true): void {
     const { ctx } = this;
 
     // (1) strings — each a light line from its finger control point (the GOAL) to the part, pointing at
@@ -194,9 +197,11 @@ export class Renderer {
     }
 
     // (3) finger control points — coloured discs numbered 1..5 (the puppeteer's fingertips on stage).
-    // Drawn per ATTACHED string (by finger slot), so during the attach ritual discs pop in one at a
-    // time with their strings, and a detached/waiting puppet shows none.
+    // Drawn per ATTACHED string (by finger slot); this is the single numbered set once the puppet is
+    // "running". During the attach ritual the caller passes showControls=false and the live fingertip
+    // discs (drawFingerPoints) are the single set instead, so the numbers never double.
     // Disc + number are sized in WORLD units (× this.scale) so they read the same at any resolution.
+    if (!showControls) return;
     const discR = DISC_R_UNITS * this.scale;
     ctx.font = `bold ${DISC_FONT_UNITS * this.scale}px ui-monospace, monospace`;
     ctx.textAlign = "center";
