@@ -190,10 +190,14 @@ export class HandKeyboard {
   // Feed one hand's input each frame (null = no hand). Maps the palm cursor LINEARLY onto the field,
   // positions it in screen space, highlights the key under it (by real rect), and presses on the
   // click (fist-close or finger-thumb pinch) edge.
-  update(hand: HandInput | null, now: number): void {
-    const cs = this.pointer.read(hand, now);
-    if (!cs.present || !hand) { this.hideCursor(); this.highlight(-1, -1); this.prevDel = false; return; }
+  update(hand: HandInput | null, now: number, cameraAspect = 0): void {
+    // Aspect-correct the cursor when the camera aspect is known: the field is the stage rect, so a
+    // hand move draws a proportional (not stretched) path over a portrait/landscape keyboard alike.
+    // cameraAspect = 0 (the default) keeps the plain per-axis remap — byte-identical to before.
     const fr = this.field.getBoundingClientRect();
+    const aspect = cameraAspect > 0 && fr.height > 0 ? { cameraAspect, fieldAspect: fr.width / fr.height } : undefined;
+    const cs = this.pointer.read(hand, now, aspect);
+    if (!cs.present || !hand) { this.hideCursor(); this.highlight(-1, -1); this.prevDel = false; return; }
     const px = fr.left + cs.x * fr.width;   // screen-space cursor point (client px)
     const py = fr.top + cs.y * fr.height;
 

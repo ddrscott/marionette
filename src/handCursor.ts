@@ -33,7 +33,17 @@ export const DEFAULT_CURSOR_MARGIN = 0.25;
 export const CLICK_MIN_CONFIDENCE = 0.8;
 
 const PALM = [0, 5, 9, 13, 17]; // wrist + index/middle/ring/pinky MCPs — a stable palm centre under a fist
-const remap = (v: number, m: number): number => Math.min(1, Math.max(0, (v - m) / Math.max(1e-3, 1 - 2 * m)));
+const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
+const remap = (v: number, m: number): number => clamp01((v - m) / Math.max(1e-3, 1 - 2 * m));
+
+// Optional aspect-correction for the cursor: the camera frame and the target field (keyboard stage,
+// select area) usually have DIFFERENT aspect ratios, and the plain remap stretches the camera onto
+// the field independently per axis — so a square hand motion draws a non-square path on screen (bad in
+// a portrait viewport). Pass both aspects to instead scale BOTH axes by ONE uniform camera-unit scale.
+// The cursor uses FILL (not the puppet's FIT): the camera field COVERS the target so every key stays
+// reachable, with the longer camera axis simply overshooting. When fieldAspect === cameraAspect this
+// reduces EXACTLY to the plain remap, so any consumer at that aspect is byte-identical to before.
+export interface CursorAspect { cameraAspect: number; fieldAspect: number; }
 
 // The pointer's raw source: the palm centroid in normalized IMAGE coords [0,1] (un-mirrored, no margin).
 // Exported so diagnostics can read the hand's true frame position — e.g. how close it is to an edge.
@@ -45,8 +55,19 @@ export function palmCentroid(lm: Landmark[]): { x: number; y: number } {
 
 // The full cursor mapping (selfie-mirror x + margin remap), pre-smoothing. HandCursor.read consumes
 // this and so can a diagnostic overlay, so both produce the SAME on-screen position — one code path.
-export function mapCursor(lm: Landmark[], margin: number): { x: number; y: number } {
+// `aspect` (optional) applies the aspect-correct FILL described on CursorAspect; omitted → plain remap.
+export function mapCursor(lm: Landmark[], margin: number, aspect?: CursorAspect): { x: number; y: number } {
   const c = palmCentroid(lm);
+  if (aspect && aspect.cameraAspect > 0 && aspect.fieldAspect > 0) {
+    const { cameraAspect: ca, fieldAspect: fa } = aspect;
+    // Centered + selfie-mirrored camera coords in CAMERA-HEIGHT units, so equal step = equal physical
+    // distance on both axes (x is scaled by ca). The margin picks the central (1-2m) mapped region.
+    const span = Math.max(1e-3, 1 - 2 * margin);
+    const bx = (0.5 - c.x) * ca, by = c.y - 0.5;
+    const camW = ca * span, camH = span;
+    const s = Math.max(fa / camW, 1 / camH); // FILL: one uniform scale that covers the field
+    return { x: clamp01(0.5 + (bx * s) / fa), y: clamp01(0.5 + by * s) };
+  }
   return { x: remap(1 - c.x, margin), y: remap(c.y, margin) };
 }
 
@@ -85,14 +106,15 @@ export class HandCursor {
     this.fy = new OneEuro(opts.minCutoff ?? 1.5, opts.beta ?? 0.01);
   }
 
-  // Read one hand's input for this frame (null = no hand detected).
-  read(hand: HandInput | null, now: number): CursorState {
+  // Read one hand's input for this frame (null = no hand detected). `aspect` (optional) is forwarded to
+  // mapCursor for the aspect-correct FILL — pass it when the camera + field aspects are known.
+  read(hand: HandInput | null, now: number, aspect?: CursorAspect): CursorState {
     // No hand: clear the smoothing state so a re-acquired hand snaps to its true spot instead of
     // gliding from the last seen position.
     if (!hand) { this.prevClosed = false; this.fx.reset(); this.fy.reset(); return { present: false, x: 0.5, y: 0.5, closed: false, clicked: false, heldMs: 0 }; }
     const lm = hand.landmarks;
     // Map first (shared mirror + margin remap), then One-Euro the two final scalars (never the landmarks).
-    const m = mapCursor(lm, this.margin);
+    const m = mapCursor(lm, this.margin, aspect);
     const x = this.fx.filter(m.x, now);
     const y = this.fy.filter(m.y, now);
     // confidence gate + gesture: pinch uses the 3D world skeleton (rotation-invariant); fist the 2D image.

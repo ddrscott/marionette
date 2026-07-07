@@ -101,6 +101,10 @@ function wireCameraPickers(hands: Hands): void {
       camera: { deviceId: localStorage.getItem(LS_DEVICE), tier },
     });
 
+    // The harness window is aspect-flexible (portrait/square dev viewports), so use the aspect-correct
+    // FIT mapping. /game stays on the legacy map (its default) — it's 16:10-locked and hand-tuned.
+    stage.aspectCorrect = true;
+
     wireSliders(stage);
     wireWeapons(stage);
     qualSel.value = stage.hands.tier;

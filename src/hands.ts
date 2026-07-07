@@ -112,6 +112,17 @@ export class Hands {
     return hands;
   }
 
+  // The live camera frame's aspect ratio (width / height). Landmarks are normalized over the ACTUAL
+  // processed frame (the worker grabs the whole <video>), so this is the true aspect to feed the
+  // aspect-correct stage mapping (stageScale). Read from the playing <video> when it's up, else fall
+  // back to the requested quality tier's dims (e.g. 480p = 640×480 = 4:3). Guarded to a sane positive.
+  get cameraAspect(): number {
+    const vw = this.video.videoWidth, vh = this.video.videoHeight;
+    if (vw > 0 && vh > 0) return vw / vh;
+    const t = QUALITY_TIERS[this.tier] ?? QUALITY_TIERS[DEFAULT_QUALITY];
+    return t.width / t.height;
+  }
+
   // Enumerate the available video input devices (for the source picker). Labels are empty/anonymous
   // until the first successful getUserMedia, so callers re-list after the initial permission grant.
   async listCameras(): Promise<MediaDeviceInfo[]> {

@@ -149,6 +149,7 @@ const loadTargets = (): string[] => {
     // pendulum + limb wobble die fast; more along-string damping to kill rubberband on the pull.
     const cfg: PilotCfg = {
       worldWidth: renderer.worldWidth,
+      cameraAspect: hands.cameraAspect,
       playMargin: loadMargin(), swingRange: 1.0, smoothTime: 0.05,
       drag: 2.5, angularDrag: 3.5,
       stiffness: DEFAULT_STRING_STIFFNESS, damping: 28, forceCap: DEFAULT_STRING_FORCE_CAP,
@@ -234,6 +235,7 @@ const loadTargets = (): string[] => {
       const dt = Math.min(0.05, (now - lastT) / 1000);
       lastT = now;
       cfg.worldWidth = renderer.worldWidth;
+      cfg.cameraAspect = hands.cameraAspect; // refresh: it settles once the camera reports its dims
       world.gravity = { x: 0, y: -GRAVITY, z: 0 };
 
       hands.pump(now);

@@ -282,7 +282,7 @@ const cleanInitials = (raw: string): string => raw.toUpperCase().replace(/[^A-Z]
       const now = performance.now();
       hands.pump(now);
       const d = hands.latest[0] ?? null; // first detected hand drives the cursor (carries world + score)
-      kb.update(d, now);  // world landmarks + score drive the x/y pinch
+      kb.update(d, now, hands.cameraAspect);  // world landmarks + score drive the x/y pinch (aspect-correct cursor)
       gameUpdate(d, now); // timer, countdown/pause, exact-match → initials
 
       drawHands(overlayCtx, camOverlay.width, camOverlay.height, [d ? d.landmarks : null], [TEAM_TEAL]);

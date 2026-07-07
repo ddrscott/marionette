@@ -60,6 +60,7 @@ const gridCenter = (i: number, W: number): Vec2 => ({ x: (i % 5 - 2) * colGap(W)
     // Live tunables the Pilot reads (worldWidth refreshed each frame so a resize is picked up).
     const cfg: PilotCfg = {
       worldWidth: renderer.worldWidth,
+      cameraAspect: hands.cameraAspect,
       playMargin: loadMargin(), swingRange: 1.0, smoothTime: 0.01,
       drag: DEFAULT_LINEAR_DAMPING,
       stiffness: DEFAULT_STRING_STIFFNESS, damping: DEFAULT_STRING_DAMPING, forceCap: DEFAULT_STRING_FORCE_CAP,
@@ -128,6 +129,7 @@ const gridCenter = (i: number, W: number): Vec2 => ({ x: (i % 5 - 2) * colGap(W)
       const dt = Math.min(0.05, (now - lastT) / 1000);
       lastT = now;
       cfg.worldWidth = renderer.worldWidth;
+      cfg.cameraAspect = hands.cameraAspect; // refresh: it settles once the camera reports its dims
       world.gravity = { x: 0, y: -GRAVITY, z: 0 };
 
       hands.pump(now);
@@ -147,8 +149,10 @@ const gridCenter = (i: number, W: number): Vec2 => ({ x: (i % 5 - 2) * colGap(W)
         renderer.drawLabel(0, 11.3, "PICK YOUR FIGHTER", TEAM_TEAL, true);
         renderer.drawLabel(0, 10.75, lm ? "hover a fighter and make a fist" : "raise a hand to choose", "#9a968e", false);
 
-        // shared camera cursor: palm centre points (margin-mapped so you reach the edges), fist to click
-        const cs = cursor.read(det, now);
+        // shared camera cursor: palm centre points (margin-mapped so you reach the edges), fist to click.
+        // Aspect-correct against the world play area (field = W × WORLD_VIEW_HEIGHT) so the cursor isn't
+        // stretched in a portrait/non-16:10 window.
+        const cs = cursor.read(det, now, { cameraAspect: hands.cameraAspect, fieldAspect: W / WORLD_VIEW_HEIGHT });
         const curX = (cs.x - 0.5) * W;
         const curY = (1 - cs.y) * WORLD_VIEW_HEIGHT;
 

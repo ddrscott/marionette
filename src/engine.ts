@@ -14,16 +14,16 @@ import {
   DEFAULT_STRING_STIFFNESS, DEFAULT_STRING_DAMPING, DEFAULT_STRING_FORCE_CAP,
   WORLD_VIEW_HEIGHT, FLOOR_TOP, WALL_HALF_W, type Puppet, type FingerBind, type TargetName, type WeaponDef,
 } from "./puppet.ts";
-import { stageX, stageY } from "./control.ts";
+import { stageX, stageY, stageScale } from "./control.ts";
 import { initHands, type Hands, type Landmark, type QualityTier } from "./hands.ts";
 import { Renderer, drawHands, teamColor } from "./draw.ts";
 
 // ---- default gravity (raised to 20 for snappier, weightier motion) ----
 export const DEFAULT_GRAVITY = 20;
 
-// finger -> world mapping band (vertical)
+// finger -> world mapping band (vertical center; the per-axis SPAN now comes from stageScale so the
+// camera's aspect ratio is honored — see readFingerPositions + control.ts stageScale)
 const VERT_CENTER = WORLD_VIEW_HEIGHT / 2; // 6
-const VERT_SPAN = WORLD_VIEW_HEIGHT;       // 12 -> a fingertip's y spans the whole view height
 const POS_MIN_CUTOFF = 5.0; // snappy: detection is low-jitter, so little smoothing is needed
 const POS_BETA = 0.01;
 
@@ -141,6 +141,10 @@ export class Stage {
   // Game rule: clamp each player's fingertips to their own half of the stage (slot 0 = left, x<=0;
   // slot 1 = right, x>=0) so neither can reach across the center line. Off by default (free harness).
   clampHalf = false;
+  // Aspect-correct FIT mapping (see control.ts stageScale). OFF by default so the deployed, 16:10-
+  // locked /game keeps its exact tuned mapping (legacy: X = worldWidth, Y = full view height). The
+  // /harness (aspect-flexible) turns it ON so its portrait/square windows map isotropically.
+  aspectCorrect = false;
   // ---- tunables that must be APPLIED to existing bodies (use the setters) ----
   private weight = DEFAULT_PUPPET_WEIGHT;
   private drag = DEFAULT_LINEAR_DAMPING;
@@ -245,15 +249,20 @@ export class Stage {
   }
 
   private readFingerPositions(h: HandState, landmarks: Landmark[], now: number, slot: 0 | 1): void {
+    // One uniform world-units-per-camera-unit scale for BOTH axes when aspectCorrect is on (FIT);
+    // otherwise cameraAspect = 0 → legacy anisotropic map (X = worldWidth, Y = view height) so /game
+    // is unchanged. Computed once per hand per frame (worldWidth/aspect vary only across frames).
+    const ca = this.aspectCorrect ? this.hands.cameraAspect : 0;
+    const { scaleX, scaleY } = stageScale(this.renderer.worldWidth, WORLD_VIEW_HEIGHT, ca);
     for (let j = 0; j < FINGERTIPS.length; j++) {
       const lm = landmarks[FINGERTIPS[j]];
       const fx = h.ffx[j].filter(stageX(lm, this.playMargin), now);
       const fy = h.ffy[j].filter(stageY(lm, this.playMargin), now);
-      let x = fx * this.renderer.worldWidth * this.swingRange;
+      let x = fx * scaleX * this.swingRange;
       // keep each player on their half, and a hair OFF the center wall so a string can't drag a part into it
       if (this.clampHalf) x = slot === 0 ? Math.min(-WALL_HALF_W, x) : Math.max(WALL_HALF_W, x);
       h.pos[j].x = x;
-      h.pos[j].y = Math.max(FLOOR_TOP, VERT_CENTER + fy * VERT_SPAN * this.swingRange);
+      h.pos[j].y = Math.max(FLOOR_TOP, VERT_CENTER + fy * scaleY * this.swingRange);
     }
   }
 

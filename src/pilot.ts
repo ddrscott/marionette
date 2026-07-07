@@ -6,7 +6,7 @@
 // here keeps this change from touching it). Unifying Stage onto Pilot is a clean follow-up.
 import type RAPIER_NS from "@dimforge/rapier3d-compat";
 import { OneEuro } from "./oneEuro.ts";
-import { stageX, stageY } from "./control.ts";
+import { stageX, stageY, stageScale } from "./control.ts";
 import type { Landmark } from "./hands.ts";
 import {
   FINGERTIPS, FLOOR_TOP, WORLD_VIEW_HEIGHT,
@@ -14,9 +14,9 @@ import {
   setDamping, DEFAULT_ANGULAR_DAMPING, type Puppet,
 } from "./puppet.ts";
 
-// ---- finger→world mapping band (mirrors engine.ts) ----
+// ---- finger→world mapping band (mirrors engine.ts) — the per-axis SPAN comes from stageScale so the
+// camera aspect is honored (FIT); only the vertical CENTER is fixed here ----
 const VERT_CENTER = WORLD_VIEW_HEIGHT / 2;
-const VERT_SPAN = WORLD_VIEW_HEIGHT;
 const POS_MIN_CUTOFF = 5.0;
 const POS_BETA = 0.01;
 
@@ -58,6 +58,7 @@ export type PilotPhase = "waiting" | "attaching" | "running";
 // Live tunables the page owns (worldWidth changes on resize) — read every frame.
 export interface PilotCfg {
   worldWidth: number;
+  cameraAspect: number;       // live camera frame aspect (hands.cameraAspect) → aspect-correct FIT map
   playMargin: number;
   swingRange: number;
   smoothTime: number;
@@ -107,12 +108,15 @@ export class Pilot {
   feed(landmarks: Landmark[] | null, now: number): void {
     this.present = !!landmarks;
     if (!landmarks) { this.primed = false; return; }
+    // One uniform world-units-per-camera-unit scale for BOTH axes (FIT), derived from the camera's
+    // aspect ratio, so a hand move is proportional on screen at any viewport aspect (portrait too).
+    const { scaleX, scaleY } = stageScale(this.cfg.worldWidth, WORLD_VIEW_HEIGHT, this.cfg.cameraAspect);
     for (let j = 0; j < FINGERTIPS.length; j++) {
       const lm = landmarks[FINGERTIPS[j]];
       const fx = this.ffx[j].filter(stageX(lm, this.cfg.playMargin), now);
       const fy = this.ffy[j].filter(stageY(lm, this.cfg.playMargin), now);
-      this.pos[j].x = fx * this.cfg.worldWidth * this.cfg.swingRange;
-      this.pos[j].y = Math.max(FLOOR_TOP, VERT_CENTER + fy * VERT_SPAN * this.cfg.swingRange);
+      this.pos[j].x = fx * scaleX * this.cfg.swingRange;
+      this.pos[j].y = Math.max(FLOOR_TOP, VERT_CENTER + fy * scaleY * this.cfg.swingRange);
     }
   }
 
